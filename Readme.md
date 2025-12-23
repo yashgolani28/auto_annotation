@@ -1,428 +1,233 @@
-````md
-# auto annotator (images + bbox + yolo + coco export)
+# Auto Annotator
 
-a self-hosted auto-annotation + validation tool for object detection datasets.
+A self-hosted annotation tool for object detection datasets with YOLO auto-annotation, web-based validation, and export to YOLO/COCO formats.
 
-**core flow**
-1) create a project  
-2) define classes (label names + colors)  
-3) upload a dataset (zip of images)  
-4) upload pretrained weights (ultralytics yolo `.pt`)  
-5) run auto-annotation (optional)  
-6) validate / edit bounding boxes in the web ui  
-7) export in **yolo** or **coco** (zip)
+## Overview
 
----
+Auto Annotator streamlines the creation of object detection datasets by combining automated labeling with manual validation. Upload images, run YOLO inference to generate initial annotations, validate and correct them in a browser-based editor, then export to standard formats.
 
-## features
+**Key capabilities:**
+- Browser-based bounding box editor with intuitive controls
+- Automated annotation using pretrained YOLO models
+- Export to YOLO or COCO formats
+- Async job processing for large datasets
+- Dockerized deployment with persistent storage
 
-### ✅ dataset + annotation
-- upload **zip of images** (jpg/png/webp/tiff/bmp)
-- browser-based **bounding box editor**
-  - draw boxes by click-drag
-  - move boxes (drag)
-  - resize boxes (transform handles)
-  - delete selected box (del/backspace)
-  - navigate images (left/right arrows)
-  - save (ctrl+s)
+## Quick Start
 
-### ✅ auto-annotation
-- runs yolo inference via **ultralytics** on your uploaded images
-- async job runner using **celery + redis**
-- stores results in postgres
-
-**important:** auto-annotation matches predictions to your project classes by **class name string match** (case-insensitive). if your yolo model predicts `car` but your project class is `Car` it will match. if it predicts `vehicle` but your project class is `car`, it will be ignored.
-
-### ✅ exports
-- **yolo** export
-  - `images/train|val|test/`
-  - `labels/train|val|test/` (one `.txt` per image)
-  - `data.yaml`
-- **coco** export
-  - `images/`
-  - `annotations.json` (coco bbox format)
-
----
-
-## architecture
-
-- **frontend**: react + vite + konva (bbox drawing)
-- **backend**: fastapi + sqlalchemy
-- **db**: postgres (projects, datasets, items, annotations, jobs, exports)
-- **queue**: redis + celery worker (auto-annotate jobs)
-- **storage**: local volume mounted at `./data` (images, models, exports)
-
----
-
-## requirements
-
-- docker desktop (linux engine)
-- docker compose v2 (ships with docker desktop)
-- recommended: 16 gb ram minimum (ultralytics + opencv can be heavy)
-
----
-
-## quick start (docker)
-
-> tip (windows): avoid spaces in folder names. use something like  
-> `C:\ESSI\Projects\annotation_tool` instead of `annotation tool`
-
-1) unzip the project
-2) run:
+**Prerequisites:** Docker Desktop with 16GB+ RAM recommended
 
 ```bash
+# Clone and start
 docker compose up --build
-````
 
-3. open:
-
-* ui: [http://localhost:5173](http://localhost:5173)
-* api docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
----
-
-## configuration
-
-compose services:
-
-* postgres: `localhost:5432` (user/pass/db: `annotator`)
-* redis: `localhost:6379`
-* backend: `localhost:8000`
-* frontend: `localhost:5173`
-
-environment variables (set in `docker-compose.yml`)
-
-### backend
-
-* `DATABASE_URL`
-* `STORAGE_DIR` (inside container, default `/app/data`)
-* `CORS_ORIGINS` (default `http://localhost:5173`)
-* `REDIS_URL`
-
-### frontend
-
-* `VITE_API_BASE` (default `http://localhost:8000`)
-
----
-
-## folder structure
-
-```
-auto_annotator/
-  docker-compose.yml
-  backend/
-    Dockerfile
-    requirements.txt
-    app/
-      main.py
-      api/
-      models/
-      schemas/
-      services/
-      workers/
-  frontend/
-    Dockerfile
-    package.json
-    src/
-      pages/
-      api.ts
-  data/                      # persistent volume
-    projects/
-      <project_id>/
-        datasets/<dataset_id>/images/*.jpg
-        models/*.pt
-    exports/
-      project_<id>/dataset_<id>/aset_<id>/export_*.zip
+# Access the application
+UI:       http://localhost:5173
+API Docs: http://localhost:8000/docs
 ```
 
----
+## Workflow
 
-## using the app (recommended workflow)
+### 1. Create Project & Define Classes
 
-### 1) create project
-
-* go to **home**
-* enter name → create
-* click **setup**
-
-### 2) define classes
-
-* in setup page, under “classes”
-* one class per line, e.g.
-
-  ```
-  car
-  truck
-  bus
-  motorbike
-  plate
-  ```
-
-save classes.
-
-### 3) upload dataset (zip)
-
-prepare a zip containing only images (nested folders are ok, tool extracts images by filename).
-
-* in setup page, “upload dataset”
-* choose dataset name
-* upload zip
-
-**note:** right now every image is assigned to split=`train` by default. (see “splits” below)
-
-### 4) upload pretrained weights
-
-* upload `.pt` (recommended; auto-annotate uses ultralytics)
-* `.onnx` upload is allowed for storage but **auto-annotate in this mvp supports only `.pt`**
-
-### 5) auto-annotate (optional)
-
-* open **auto**
-* choose dataset + model + annotation set
-* set conf/iou
-* start job
-* wait for progress to reach success
-
-**class matching rule**
-
-* model predicted class name must match project class name (case-insensitive)
-* unmatched predicted classes are ignored
-
-### 6) validate / edit annotations
-
-* open **annotate**
-* choose dataset, annotation set, active class
-* draw/drag/resize boxes
-* toggle “approved” per box (useful for exporting only validated bboxes)
-* ctrl+s to save, or click save
-
-shortcuts:
-
-* **drag on empty space**: create bbox
-* **del/backspace**: delete selected bbox
-* **left/right arrow**: prev/next image
-* **ctrl+s**: save
-
-### 7) export
-
-* open **export**
-* choose dataset + annotation set
-* options:
-
-  * include images
-  * approved only
-* export yolo zip or coco zip
-* download last export
-
----
-
-## exports explained
-
-### yolo format
-
-label file: `labels/<split>/<image_stem>.txt`
-
-each line:
+Create a new project and define your object classes:
 
 ```
-<class_index> <x_center> <y_center> <width> <height>
+car
+truck
+bus
+motorbike
+license_plate
 ```
 
-all normalized to [0..1] relative to image width/height.
+### 2. Upload Dataset
 
-also generates `data.yaml`:
+Prepare a zip file containing your images (JPG, PNG, WebP, TIFF, BMP). Nested folders are supported—images are extracted by filename.
 
-* train: `images/train`
-* val: `images/val`
-* test: `images/test`
-* names: list of class names in the same order as your project classes
+### 3. Upload Model Weights
 
-### coco format
+Upload pretrained YOLO weights (`.pt` format) for auto-annotation.
 
-creates:
+### 4. Run Auto-Annotation
 
-* `annotations.json`
-* `images/*.jpg`
+Configure and run inference:
+- Select dataset and model
+- Set confidence threshold (recommended: 0.15-0.25)
+- Set IoU threshold
+- Monitor job progress
 
-bbox format:
+**Class Matching:** Predictions are matched to project classes by name (case-insensitive). Unmatched classes are ignored.
+
+### 5. Validate & Edit
+
+Use the annotation editor to refine results:
+- **Click-drag** on empty space to draw boxes
+- **Drag** boxes to reposition
+- **Resize** using corner handles
+- **Delete** selected box with Del/Backspace
+- **Navigate** images with arrow keys
+- **Save** with Ctrl+S
+
+Mark boxes as "approved" to export only validated annotations.
+
+### 6. Export
+
+Export your dataset in YOLO or COCO format:
+- **YOLO**: Images organized by split, normalized txt labels, data.yaml
+- **COCO**: Images folder with annotations.json
+
+Options:
+- Include/exclude images
+- Export approved annotations only
+
+## Architecture
 
 ```
-[x, y, width, height]
+Frontend:  React + Vite + Konva (canvas-based editing)
+Backend:   FastAPI + SQLAlchemy
+Database:  PostgreSQL
+Queue:     Redis + Celery (async jobs)
+Storage:   Local volume at ./data
 ```
 
-in absolute pixel units (top-left origin).
+## Export Formats
 
----
+### YOLO Format
 
-## api reference (most useful endpoints)
-
-base url: `http://localhost:8000`
-
-### projects
-
-* `POST /api/projects`
-* `GET /api/projects`
-* `GET /api/projects/{project_id}`
-
-### classes
-
-* `POST /api/projects/{project_id}/classes`
-* `GET  /api/projects/{project_id}/classes`
-
-### datasets
-
-* `POST /api/projects/{project_id}/datasets`
-* `GET  /api/projects/{project_id}/datasets`
-* `POST /api/datasets/{dataset_id}/upload` (zip file)
-* `GET  /api/datasets/{dataset_id}/items`
-
-### models
-
-* `POST /api/projects/{project_id}/models` (multipart: name + file)
-* `GET  /api/projects/{project_id}/models`
-
-### annotations
-
-* `GET /api/items/{item_id}/annotations?annotation_set_id=...`
-* `PUT /api/items/{item_id}/annotations?annotation_set_id=...`
-
-### jobs
-
-* `POST /api/projects/{project_id}/jobs/auto-annotate`
-* `GET  /api/jobs/{job_id}`
-
-### exports
-
-* `POST /api/projects/{project_id}/exports`
-* `GET  /api/exports/{export_id}/download`
-
-### media
-
-* `GET /media/items/{item_id}` (raw image)
-
----
-
-## splits (train/val/test)
-
-current behavior:
-
-* all images are ingested with `split="train"`
-
-best ways to handle splits right now:
-
-1. export everything as train and split later in your training pipeline, or
-2. manually update split in postgres (advanced), or
-3. extend the tool to add:
-
-   * a split assignment ui (per dataset)
-   * auto random split (e.g., 80/10/10)
-
----
-
-## common issues + fixes
-
-### docker compose warning: “version is obsolete”
-
-safe to ignore. you can remove this from `docker-compose.yml`:
-
-```yaml
-version: "3.9"
+```
+dataset/
+├── images/
+│   ├── train/*.jpg
+│   ├── val/*.jpg
+│   └── test/*.jpg
+├── labels/
+│   ├── train/*.txt
+│   ├── val/*.txt
+│   └── test/*.txt
+└── data.yaml
 ```
 
-### build fails with: `lookup auth.docker.io: no such host`
+Label format (normalized 0-1):
+```
+<class_idx> <x_center> <y_center> <width> <height>
+```
 
-this is dns/network (docker hub unreachable).
+### COCO Format
 
-fixes:
+```
+dataset/
+├── images/*.jpg
+└── annotations.json
+```
 
-* try a different network/hotspot (to confirm firewall)
-* set docker desktop dns:
+Bounding boxes in absolute pixels: `[x, y, width, height]`
 
-  * docker desktop → settings → docker engine:
+## Configuration
 
-    ```json
-    { "dns": ["1.1.1.1", "8.8.8.8"] }
-    ```
-  * apply & restart
+Key environment variables (set in `docker-compose.yml`):
 
-### slow build on first run
+**Backend:**
+- `DATABASE_URL`: PostgreSQL connection string
+- `STORAGE_DIR`: Persistent storage path (default: `/app/data`)
+- `REDIS_URL`: Redis connection for job queue
+- `CORS_ORIGINS`: Allowed frontend origins
 
-backend installs ultralytics + opencv + numpy which can be large. subsequent builds are faster due to cache.
+**Frontend:**
+- `VITE_API_BASE`: Backend API URL (default: `http://localhost:8000`)
 
-### auto-annotate produces no boxes
+## API Reference
 
-common reasons:
+Key endpoints:
 
-* project class names don’t match model class names
-* conf too high (try 0.15–0.25)
-* model isn’t detection or weights incompatible
+```
+POST   /api/projects                              Create project
+GET    /api/projects/{id}                         Get project details
+POST   /api/projects/{id}/classes                 Add classes
+POST   /api/projects/{id}/datasets                Create dataset
+POST   /api/datasets/{id}/upload                  Upload images (zip)
+POST   /api/projects/{id}/models                  Upload model weights
+GET    /api/datasets/{id}/items                   List dataset images
+POST   /api/projects/{id}/jobs/auto-annotate      Start auto-annotation
+GET    /api/jobs/{id}                             Check job status
+GET    /api/items/{id}/annotations                Get annotations
+PUT    /api/items/{id}/annotations                Save annotations
+POST   /api/projects/{id}/exports                 Create export
+GET    /api/exports/{id}/download                 Download export zip
+GET    /media/items/{id}                          Retrieve image
+```
 
-### can’t see images in ui
+Full API documentation: http://localhost:8000/docs
 
-* confirm backend is running on `http://localhost:8000`
-* check `VITE_API_BASE` in frontend env (compose sets it)
-* check browser console for 404s
+## Troubleshooting
 
----
+**Docker build fails with DNS errors:**
+- Check network connectivity to Docker Hub
+- Configure Docker DNS: Settings → Docker Engine → Add `{"dns": ["1.1.1.1", "8.8.8.8"]}`
 
-## limitations (current mvp)
+**Auto-annotation produces no results:**
+- Verify project class names match model class names (case-insensitive)
+- Lower confidence threshold (try 0.15-0.25)
+- Confirm model is for object detection
 
-* auto-annotate supports only ultralytics `.pt` weights (not onnx)
-* no segmentation or keypoints (detection only)
-* no importing existing yolo/coco labels yet
-* no dataset split management ui (everything defaults to train)
-* no role-based auth (it’s a local tool)
+**Images not loading in UI:**
+- Verify backend is accessible at `http://localhost:8000`
+- Check browser console for network errors
+- Confirm `VITE_API_BASE` environment variable
 
----
+**Slow initial build:**
+- First build installs large dependencies (Ultralytics, OpenCV)
+- Subsequent builds use Docker cache and complete faster
 
-## roadmap (recommended upgrades)
+## Current Limitations
 
-if you want this to feel like a “best-in-class” internal tool, these are the next moves:
+- Auto-annotation supports only Ultralytics `.pt` weights (ONNX upload allowed but not used)
+- Detection only (no segmentation or keypoints)
+- No import of existing YOLO/COCO annotations
+- All images default to "train" split—no split management UI
+- Single-user tool (no authentication)
 
-* dataset splits ui (random split + manual override)
-* import yolo + coco into annotation sets
-* label hotkeys (1..9), box copy/duplicate, box nudge with arrows
-* zoom/pan canvas, snap-to-edge, min box size
-* class mapping ui for auto-annotation (map model classes → project classes)
-* active learning: sort images by low-confidence, quick approve queue
-* multi-user auth + audit log
-* model registry + model versioning meta (run, dataset hash, etc.)
-* export to additional formats (pascal voc, labelme, roboflow json)
+## Roadmap
 
----
+Potential enhancements for production use:
 
-## dev mode (optional)
+**Workflow improvements:**
+- Dataset split management (random split, manual assignment)
+- Import existing YOLO/COCO labels
+- Keyboard shortcuts for classes (1-9), box duplication, nudging
+- Canvas zoom/pan, grid snap, minimum box size constraints
 
-if you want to run without docker:
+**Auto-annotation:**
+- Class mapping UI (map model classes to project classes)
+- Active learning (prioritize low-confidence predictions)
+- Batch processing optimizations
 
-### backend
+**Enterprise features:**
+- Multi-user authentication and role-based access
+- Audit logging
+- Model registry with versioning
+- Additional export formats (Pascal VOC, LabelMe, Roboflow)
 
-* python 3.11
-* postgres + redis running
-* set env vars:
+## Development Mode
 
-  * `DATABASE_URL=postgresql+psycopg://...`
-  * `REDIS_URL=redis://...`
-  * `STORAGE_DIR=...`
-* run:
+Run without Docker for development:
 
+**Backend:**
 ```bash
+# Requirements: Python 3.11, PostgreSQL, Redis
+export DATABASE_URL=postgresql+psycopg://annotator:annotator@localhost/annotator
+export REDIS_URL=redis://localhost:6379
+export STORAGE_DIR=./data
+
 uvicorn app.main:app --reload --port 8000
 celery -A app.workers.celery_app.celery worker --loglevel=INFO
 ```
 
-### frontend
-
+**Frontend:**
 ```bash
 npm install
 npm run dev -- --port 5173
 ```
 
----
+## License
 
-## license / internal use
-
-use internally as needed. if you plan to ship externally, add auth, rate limits, and storage hardening first.
-
-```
-```
+For internal use. Add authentication, rate limiting, and storage security before external deployment.

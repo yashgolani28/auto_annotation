@@ -1,5 +1,4 @@
 version: "3.9"
-
 services:
   postgres:
     image: postgres:16
@@ -24,6 +23,12 @@ services:
       STORAGE_DIR: /app/data
       CORS_ORIGINS: http://localhost:5173
       REDIS_URL: redis://redis:6379/0
+
+      JWT_SECRET: "change-this-in-prod"
+      ACCESS_TOKEN_MINUTES: "30"
+      REFRESH_TOKEN_DAYS: "14"
+      BOOTSTRAP_ADMIN_EMAIL: "admin@local"
+      BOOTSTRAP_ADMIN_PASSWORD: "admin12345"
     volumes:
       - ./data:/app/data
     ports:
@@ -39,6 +44,12 @@ services:
       DATABASE_URL: postgresql+psycopg://annotator:annotator@postgres:5432/annotator
       STORAGE_DIR: /app/data
       REDIS_URL: redis://redis:6379/0
+
+      JWT_SECRET: "change-this-in-prod"
+      ACCESS_TOKEN_MINUTES: "30"
+      REFRESH_TOKEN_DAYS: "14"
+      BOOTSTRAP_ADMIN_EMAIL: "admin@local"
+      BOOTSTRAP_ADMIN_PASSWORD: "admin12345"
     volumes:
       - ./data:/app/data
     depends_on:

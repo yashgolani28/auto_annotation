@@ -60,6 +60,13 @@ def auto_annotate_task(job_id: int):
         classes = db.query(LabelClass).filter(LabelClass.project_id == job.project_id).all()
         name_to_class_id = {c.name.lower(): c.id for c in classes}
 
+        class_mapping = {}
+        try:
+            class_mapping = (aset.params or {}).get("class_mapping") or {}
+        except Exception:
+            class_mapping = {}
+        class_mapping = {str(k).lower(): str(v).lower() for k, v in class_mapping.items()}
+
         weights_path = Path(settings.storage_dir) / mw.rel_path
         if mw.framework != "ultralytics" or not weights_path.exists():
             _update_job(db, job, status="failed", message="auto annotate supports only ultralytics .pt in this MVP")
@@ -93,7 +100,9 @@ def auto_annotate_task(job_id: int):
                 except Exception:
                     cls_name = str(cls_idx)
 
-                target_id = name_to_class_id.get(cls_name.lower())
+                model_name = cls_name.lower()
+                mapped = class_mapping.get(model_name, model_name)
+                target_id = name_to_class_id.get(mapped)
                 if not target_id:
                     continue
 

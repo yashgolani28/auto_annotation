@@ -5,16 +5,18 @@ from pathlib import Path
 import shutil
 
 from app.db.session import get_db
-from app.models.models import Project, ModelWeight
+from app.models.models import Project, ModelWeight, User
 from app.schemas.schemas import ModelOut
 from app.services.storage import ensure_dirs, models_dir
 from app.services.inference import load_ultralytics_model, get_model_class_names
 from app.core.config import settings
+from app.core.deps import get_current_user, require_project_access, require_project_role
 
 router = APIRouter()
 
 @router.post("/projects/{project_id}/models", response_model=ModelOut)
-def upload_model(project_id: int, name: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
+def upload_model(project_id: int, name: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_project_role(project_id, ["reviewer"], db, user)
     if not db.query(Project).filter(Project.id == project_id).first():
         raise HTTPException(status_code=404, detail="project not found")
     ensure_dirs()
@@ -53,5 +55,6 @@ def upload_model(project_id: int, name: str = Form(...), file: UploadFile = File
     return mw
 
 @router.get("/projects/{project_id}/models", response_model=list[ModelOut])
-def list_models(project_id: int, db: Session = Depends(get_db)):
+def list_models(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    require_project_access(project_id, db, user)
     return db.query(ModelWeight).filter(ModelWeight.project_id == project_id).order_by(ModelWeight.uploaded_at.desc()).all()
