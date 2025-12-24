@@ -10,6 +10,7 @@ import Annotate from "./pages/Annotate"
 import AutoAnnotate from "./pages/AutoAnnotate"
 import ExportPage from "./pages/ExportPage"
 import AdminUsers from "./pages/AdminUsers"
+import Jobs from "./pages/Jobs"
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { accessToken } = useAuth()
@@ -27,6 +28,7 @@ export default function App() {
       <Route path="/project/:id/annotate" element={<Protected><Annotate /></Protected>} />
       <Route path="/project/:id/auto" element={<Protected><AutoAnnotate /></Protected>} />
       <Route path="/project/:id/export" element={<Protected><ExportPage /></Protected>} />
+      <Route path="/project/:id/jobs" element={<Protected><Jobs /></Protected>} />
 
       <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
     </Routes>

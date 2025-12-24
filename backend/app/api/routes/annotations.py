@@ -109,6 +109,7 @@ def replace_annotations(item_id: int, payload: list[AnnotationIn], annotation_se
             x=a.x, y=a.y, w=a.w, h=a.h,
             confidence=a.confidence,
             approved=a.approved,
+            attributes=a.attributes or {},
             updated_at=datetime.utcnow()
         ))
     db.commit()

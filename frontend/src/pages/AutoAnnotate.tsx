@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
 import { api, wsJobUrl } from "../api"
+import { useToast } from "../components/Toast"
 
 type Dataset = { id: number; name: string }
 type Model = { id: number; name: string; framework: string; class_names: Record<string, string> }
@@ -13,11 +14,13 @@ type Job = { id: number; status: string; progress: number; message: string; upda
 export default function AutoAnnotate() {
   const { id } = useParams()
   const projectId = Number(id)
+  const { showToast } = useToast()
 
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [models, setModels] = useState<Model[]>([])
   const [sets, setSets] = useState<ASet[]>([])
   const [classes, setClasses] = useState<LabelClass[]>([])
+  const [loading, setLoading] = useState(false)
 
   const [datasetId, setDatasetId] = useState<number>(0)
   const [modelId, setModelId] = useState<number>(0)
@@ -44,19 +47,26 @@ export default function AutoAnnotate() {
   }, [selectedModel])
 
   async function refresh() {
-    const [d, m, s, c] = await Promise.all([
-      api.get(`/api/projects/${projectId}/datasets`),
-      api.get(`/api/projects/${projectId}/models`),
-      api.get(`/api/projects/${projectId}/annotation-sets`),
-      api.get(`/api/projects/${projectId}/classes`)
-    ])
-    setDatasets(d.data)
-    setModels(m.data)
-    setSets(s.data)
-    setClasses(c.data)
+    try {
+      setLoading(true)
+      const [d, m, s, c] = await Promise.all([
+        api.get(`/api/projects/${projectId}/datasets`),
+        api.get(`/api/projects/${projectId}/models`),
+        api.get(`/api/projects/${projectId}/annotation-sets`),
+        api.get(`/api/projects/${projectId}/classes`)
+      ])
+      setDatasets(d.data)
+      setModels(m.data)
+      setSets(s.data)
+      setClasses(c.data)
 
-    if (!datasetId && d.data.length) setDatasetId(d.data[0].id)
-    if (!modelId && m.data.length) setModelId(m.data[0].id)
+      if (!datasetId && d.data.length) setDatasetId(d.data[0].id)
+      if (!modelId && m.data.length) setModelId(m.data[0].id)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || "Failed to load data", "error")
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
@@ -94,9 +104,17 @@ export default function AutoAnnotate() {
       ws.onmessage = (ev) => {
         try {
           const data = JSON.parse(ev.data)
-          if (data.error) return
+          if (data.error) {
+            showToast(data.error, "error")
+            return
+          }
           setJob(data)
-          if (data.status === "success" || data.status === "failed") {
+          if (data.status === "success" || data.status === "done") {
+            showToast("Auto annotation completed successfully!", "success")
+            ws.close()
+            wsRef.current = null
+          } else if (data.status === "failed") {
+            showToast(`Job failed: ${data.message || "Unknown error"}`, "error")
             ws.close()
             wsRef.current = null
           }
@@ -108,7 +126,10 @@ export default function AutoAnnotate() {
   }
 
   async function start() {
-    if (!datasetId || !modelId) return
+    if (!datasetId || !modelId) {
+      showToast("Please select a dataset and model", "error")
+      return
+    }
 
     // build class_mapping only for non-empty entries
     const class_mapping: Record<string, string> = {}
@@ -116,37 +137,32 @@ export default function AutoAnnotate() {
       if (v && v.trim()) class_mapping[k] = v.trim()
     }
 
-    // create a new annotation set for this run (so runs are reproducible)
-    const asetName = `auto_run_${new Date().toISOString().replace(/[:.]/g, "-")}`
-    // backend doesn’t expose create-aset endpoint in the earlier patch, so we pass params via job payload;
-    // the worker stores them into aset.params already in your v1, and in v2 we rely on that.
-    // if your backend expects annotation_set_id, then use the default or first set.
-    const annotation_set_id = sets.length ? sets[0].id : 0
-    if (!annotation_set_id) {
-      alert("no annotation set found (create project again or check backend)")
-      return
-    }
-
+    // Use model_id (backend expects this, not model_weight_id)
     const payload = {
+      model_id: modelId,
       dataset_id: datasetId,
-      model_weight_id: modelId,
-      annotation_set_id,
+      annotation_set_id: null, // Let backend create a new set
       conf,
       iou,
+      device: "",
       params: {
-        name: asetName,
         class_mapping
       }
     }
 
-    const r = await api.post(`/api/projects/${projectId}/jobs/auto-annotate`, payload)
-    const jobId = r.data.job_id || r.data.id || r.data.job?.id
-    if (!jobId) {
-      alert("job started but no job_id returned")
-      return
+    try {
+      const r = await api.post(`/api/projects/${projectId}/jobs/auto-annotate`, payload)
+      const jobId = r.data.id || r.data.job_id
+      if (!jobId) {
+        showToast("Job started but no job_id returned", "error")
+        return
+      }
+      setJob({ id: jobId, status: "queued", progress: 0, message: "Starting...", updated_at: new Date().toISOString() })
+      showToast("Auto annotation job started", "success")
+      connectJobWS(jobId)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || "Failed to start job", "error")
     }
-    setJob({ id: jobId, status: "queued", progress: 0, message: "", updated_at: new Date().toISOString() })
-    connectJobWS(jobId)
   }
 
   useEffect(() => {
@@ -194,8 +210,12 @@ export default function AutoAnnotate() {
             </div>
           </div>
 
-          <button className="mt-4 bg-zinc-900 text-white rounded-lg px-4 py-2" onClick={start}>
-            start auto annotation
+          <button
+            className="mt-4 bg-zinc-900 text-white rounded-lg px-4 py-2 font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={start}
+            disabled={loading || !datasetId || !modelId || job?.status === "running"}
+          >
+            {job?.status === "running" ? "Running..." : "Start Auto Annotation"}
           </button>
 
           {job && (

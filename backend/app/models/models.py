@@ -161,6 +161,16 @@ class AnnotationLock(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)  # lease lock
 
 
+class ItemLock(Base):
+    __tablename__ = "item_locks"
+    __table_args__ = (UniqueConstraint("annotation_set_id", "dataset_item_id", name="uq_item_lock"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    annotation_set_id: Mapped[int] = mapped_column(ForeignKey("annotation_sets.id", ondelete="CASCADE"), index=True)
+    dataset_item_id: Mapped[int] = mapped_column(ForeignKey("dataset_items.id", ondelete="CASCADE"), index=True)
+    owner: Mapped[str] = mapped_column(String(200))  # user email/id as string
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

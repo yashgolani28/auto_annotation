@@ -58,3 +58,14 @@ def upload_model(project_id: int, name: str = Form(...), file: UploadFile = File
 def list_models(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     require_project_access(project_id, db, user)
     return db.query(ModelWeight).filter(ModelWeight.project_id == project_id).order_by(ModelWeight.uploaded_at.desc()).all()
+
+
+@router.delete("/models/{model_id}")
+def delete_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    mw = db.query(ModelWeight).filter(ModelWeight.id == model_id).first()
+    if not mw:
+        raise HTTPException(status_code=404, detail="model not found")
+    require_project_role(mw.project_id, ["reviewer"], db, user)
+    db.delete(mw)
+    db.commit()
+    return {"status": "deleted"}

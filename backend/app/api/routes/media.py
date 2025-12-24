@@ -18,3 +18,12 @@ def get_item_image(item_id: int, db: Session = Depends(get_db)):
     if not p.exists():
         raise HTTPException(status_code=404, detail="file missing")
     return FileResponse(str(p))
+
+
+@router.get("/media/logo")
+def get_logo():
+    # Company logo used in the frontend layout. Path provided by user.
+    logo_path = Path(r"C:\ESSI\Projects\annotation_tool\essi_logo.png")
+    if not logo_path.exists():
+        raise HTTPException(status_code=404, detail="logo not found")
+    return FileResponse(str(logo_path))

@@ -228,6 +228,11 @@ npm install
 npm run dev -- --port 5173
 ```
 
-## License
+---
 
-For internal use. Add authentication, rate limiting, and storage security before external deployment.
+## license / internal use
+
+use internally as needed. if you plan to ship externally, add auth, rate limits, and storage hardening first.
+
+```
+```

@@ -2,10 +2,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends     build-essential     libgl1     libglib2.0-0     && rm -rf /var/lib/apt/lists/*
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=600
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# upgrade pip tooling
+RUN python -m pip install --upgrade pip setuptools wheel
+
+# IMPORTANT: pre-install CPU-only torch so ultralytics doesn't pull CUDA+nvidia wheels
+ARG TORCH_VER=2.9.1
+RUN pip install --no-cache-dir --retries 15 --timeout 600 \
+    --index-url https://download.pytorch.org/whl/cpu \
+    torch==${TORCH_VER}
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --retries 15 --timeout 600 -r requirements.txt
 
 COPY app ./app
 

@@ -1,10 +1,11 @@
 // frontend/src/pages/Annotate.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useParams } from "react-router-dom"
-import { Stage, Layer, Rect, Text, Group } from "react-konva"
+import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Line } from "react-konva"
 import useImage from "use-image"
 import { api, mediaUrl } from "../api"
 import { useAuth } from "../state/auth"
+import { useToast } from "../components/Toast"
 
 type Dataset = { id: number; name: string }
 type ASet = { id: number; name: string; source: string }
@@ -19,6 +20,10 @@ type Ann = {
   h: number
   confidence?: number | null
   approved: boolean
+  attributes?: {
+    note?: string
+    polygon?: number[]
+  }
 }
 
 type LockState = { ok: boolean; expires_at?: string; error?: string }
@@ -29,6 +34,7 @@ export default function Annotate() {
   const { id } = useParams()
   const projectId = Number(id)
   const { user } = useAuth()
+  const { showToast } = useToast()
 
   // selectors
   const [datasets, setDatasets] = useState<Dataset[]>([])
@@ -49,6 +55,11 @@ export default function Annotate() {
   const [selectedIdx, setSelectedIdx] = useState<number>(-1)
   const [dirty, setDirty] = useState(false)
 
+  // undo / redo history (per item)
+  type HistoryEntry = { anns: Ann[] }
+  const [past, setPast] = useState<HistoryEntry[]>([])
+  const [future, setFuture] = useState<HistoryEntry[]>([])
+
   // lock
   const [lock, setLock] = useState<LockState>({ ok: false })
   const lockTimerRef = useRef<number | null>(null)
@@ -63,6 +74,14 @@ export default function Annotate() {
   const [drawing, setDrawing] = useState(false)
   const drawStart = useRef<{ x: number; y: number } | null>(null)
   const [draft, setDraft] = useState<Ann | null>(null)
+
+  // tool palette: pan / box / polygon / select
+  type Tool = "pan" | "draw" | "polygon" | "select"
+  const [tool, setTool] = useState<Tool>("draw")
+
+  // polygon drawing state
+  const [polyPoints, setPolyPoints] = useState<{ x: number; y: number }[]>([])
+  const [polyActive, setPolyActive] = useState(false)
 
   // image
   const imgUrl = item ? mediaUrl(item.id) : ""
@@ -112,6 +131,8 @@ export default function Annotate() {
     setAnns(r.data)
     setSelectedIdx(-1)
     setDirty(false)
+    setPast([])
+    setFuture([])
   }
 
   async function acquireLock(itemId: number, asetId: number) {
@@ -198,9 +219,9 @@ export default function Annotate() {
       await api.put(`/api/items/${item.id}/annotations?annotation_set_id=${annotationSetId}`, anns)
       setDirty(false)
       await acquireLock(item.id, annotationSetId) // extend lock after save
-      alert("saved")
+      showToast("Annotations saved", "success")
     } catch (e: any) {
-      alert(e?.response?.data?.detail || "save failed")
+      showToast(e?.response?.data?.detail || "Save failed", "error")
     }
   }
 
@@ -220,6 +241,38 @@ export default function Annotate() {
     setIndex((i) => Math.max(0, i - 1))
   }
 
+  function applyChange(mutator: (prev: Ann[]) => Ann[]) {
+    setAnns((prev) => {
+      const next = mutator(prev)
+      setPast((p) => [...p, { anns: prev }])
+      setFuture([])
+      setDirty(true)
+      return next
+    })
+  }
+
+  function undo() {
+    setPast((p) => {
+      if (!p.length) return p
+      const last = p[p.length - 1]
+      setFuture((f) => [...f, { anns }])
+      setAnns(last.anns)
+      setDirty(true)
+      return p.slice(0, -1)
+    })
+  }
+
+  function redo() {
+    setFuture((f) => {
+      if (!f.length) return f
+      const last = f[f.length - 1]
+      setPast((p) => [...p, { anns }])
+      setAnns(last.anns)
+      setDirty(true)
+      return f.slice(0, -1)
+    })
+  }
+
   // hotkeys
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -228,15 +281,41 @@ export default function Annotate() {
         save()
         return
       }
+      if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault()
+        undo()
+        return
+      }
+      if ((e.ctrlKey && e.key.toLowerCase() === "y") || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault()
+        redo()
+        return
+      }
       if (e.key === "ArrowRight") next()
       if (e.key === "ArrowLeft") prev()
       if (e.key === "Delete" || e.key === "Backspace") {
         if (selectedIdx >= 0) {
-          setAnns((arr) => arr.filter((_, i) => i !== selectedIdx))
+          applyChange((arr) => arr.filter((_, i) => i !== selectedIdx))
           setSelectedIdx(-1)
-          setDirty(true)
         }
       }
+      // tool hotkeys
+      if (!e.ctrlKey && !e.metaKey) {
+        if (e.key.toLowerCase() === "b") {
+          setTool("draw")
+        }
+        if (e.key.toLowerCase() === "p") {
+          setTool("polygon")
+        }
+        if (e.key.toLowerCase() === "v") {
+          setTool("select")
+        }
+        if (e.key === " ") {
+          e.preventDefault()
+          setTool("pan")
+        }
+      }
+
       // class hotkeys 1..9
       if (e.key >= "1" && e.key <= "9") {
         const idx = Number(e.key) - 1
@@ -254,7 +333,7 @@ export default function Annotate() {
         if (e.key === "d") dx = step
         if (dx || dy) {
           e.preventDefault()
-          setAnns((arr) =>
+          applyChange((arr) =>
             arr.map((b, i) => {
               if (i !== selectedIdx) return b
               return {
@@ -264,14 +343,13 @@ export default function Annotate() {
               }
             })
           )
-          setDirty(true)
         }
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIdx, dirty, item, annotationSetId, anns, classes, activeClassId])
+  }, [selectedIdx, dirty, item, annotationSetId, anns, classes, activeClassId, tool])
 
   function onWheel(e: any) {
     e.evt.preventDefault()
@@ -348,14 +426,56 @@ export default function Annotate() {
     const w = clamp(draft.w, 1, item.width - x)
     const h = clamp(draft.h, 1, item.height - y)
 
-    setAnns((arr) => [...arr, { ...draft, x, y, w, h }])
+    applyChange((arr) => [...arr, { ...draft, x, y, w, h }])
     setDraft(null)
-    setDirty(true)
+  }
+
+  function addPolygonPoint(e: any) {
+    if (!item || !lock.ok) return
+    const stage = stageRef.current
+    const p = stage.getPointerPosition()
+    const x = normToStageX(p.x)
+    const y = normToStageY(p.y)
+    setPolyPoints((pts) => [...pts, { x, y }])
+    setPolyActive(true)
+  }
+
+  function finishPolygon() {
+    if (!item || !lock.ok || polyPoints.length < 3) {
+      setPolyPoints([])
+      setPolyActive(false)
+      return
+    }
+    const xs = polyPoints.map((p) => p.x)
+    const ys = polyPoints.map((p) => p.y)
+    const minX = clamp(Math.min(...xs), 0, item.width - 1)
+    const minY = clamp(Math.min(...ys), 0, item.height - 1)
+    const maxX = clamp(Math.max(...xs), 0, item.width - 1)
+    const maxY = clamp(Math.max(...ys), 0, item.height - 1)
+    const w = Math.max(1, maxX - minX)
+    const h = Math.max(1, maxY - minY)
+    const flattened: number[] = []
+    polyPoints.forEach((p) => {
+      flattened.push(p.x, p.y)
+    })
+    applyChange((arr) => [
+      ...arr,
+      {
+        class_id: activeClassId,
+        x: minX,
+        y: minY,
+        w,
+        h,
+        approved: false,
+        attributes: { polygon: flattened },
+      },
+    ])
+    setPolyPoints([])
+    setPolyActive(false)
   }
 
   function toggleApproved(i: number) {
-    setAnns((arr) => arr.map((a, idx) => (idx === i ? { ...a, approved: !a.approved } : a)))
-    setDirty(true)
+    applyChange((arr) => arr.map((a, idx) => (idx === i ? { ...a, approved: !a.approved } : a)))
   }
 
   // dragging boxes
@@ -364,8 +484,7 @@ export default function Annotate() {
     const node = e.target
     const x = clamp(node.x(), 0, item.width - 1)
     const y = clamp(node.y(), 0, item.height - 1)
-    setAnns((arr) => arr.map((a, idx) => (idx === i ? { ...a, x, y } : a)))
-    setDirty(true)
+    applyChange((arr) => arr.map((a, idx) => (idx === i ? { ...a, x, y } : a)))
   }
 
   const banner = useMemo(() => {
@@ -447,13 +566,77 @@ export default function Annotate() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 mt-4">
         {/* canvas */}
-        <div className="bg-white border rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-3 py-2 border-b">
-            <div className="text-sm font-medium">canvas</div>
-            <div className="text-xs text-zinc-500">scale {scale.toFixed(2)}</div>
+        <div className="bg-slate-950 border border-blue-200/25 rounded-2xl overflow-hidden shadow-lg shadow-blue-950/20">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200/20">
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-medium mr-3 text-slate-50">canvas</div>
+              <div className="flex items-center gap-1 text-xs">
+                <button
+                  className={`px-2 py-1 rounded-lg border text-xs ${
+                    tool === "draw"
+                      ? "bg-sky-700 text-white border-sky-500"
+                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
+                  }`}
+                  onClick={() => setTool("draw")}
+                  title="draw boxes (B)"
+                >
+                  draw
+                </button>
+                <button
+                  className={`px-2 py-1 rounded-lg border text-xs ${
+                    tool === "polygon"
+                      ? "bg-sky-700 text-white border-sky-500"
+                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
+                  }`}
+                  onClick={() => setTool("polygon")}
+                  title="draw polygon (P)"
+                >
+                  polygon
+                </button>
+                <button
+                  className={`px-2 py-1 rounded-lg border text-xs ${
+                    tool === "pan"
+                      ? "bg-sky-700 text-white border-sky-500"
+                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
+                  }`}
+                  onClick={() => setTool("pan")}
+                  title="pan canvas (Space)"
+                >
+                  pan
+                </button>
+                <button
+                  className={`px-2 py-1 rounded-lg border text-xs ${
+                    tool === "select"
+                      ? "bg-sky-700 text-white border-sky-500"
+                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
+                  }`}
+                  onClick={() => setTool("select")}
+                  title="select boxes (V)"
+                >
+                  select
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-slate-300">
+              <button
+                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800"
+                onClick={() => undo()}
+                disabled={!past.length}
+              >
+                undo
+              </button>
+              <button
+                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800"
+                onClick={() => redo()}
+                disabled={!future.length}
+              >
+                redo
+              </button>
+              <span className="opacity-80">scale {scale.toFixed(2)}</span>
+            </div>
           </div>
 
-          <div className="bg-zinc-900/5">
+          <div className="bg-slate-900">
             <Stage
               ref={stageRef}
               width={stageSize.w}
@@ -462,30 +645,47 @@ export default function Annotate() {
               scaleY={scale}
               x={pos.x}
               y={pos.y}
-              draggable
+              draggable={tool === "pan"}
               onDragEnd={(e) => setPos({ x: e.target.x(), y: e.target.y() })}
               onWheel={onWheel}
               onMouseDown={(e) => {
-                // only draw if clicking empty area (not on a box)
                 const clickedOnEmpty = e.target === e.target.getStage()
-                if (clickedOnEmpty) startDraw(e)
+                if (!clickedOnEmpty) return
+                if (tool === "draw") {
+                  startDraw(e)
+                } else if (tool === "polygon") {
+                  addPolygonPoint(e)
+                }
               }}
-              onMouseMove={updateDraw}
-              onMouseUp={endDraw}
+              onMouseMove={(e) => {
+                if (tool === "draw") updateDraw(e)
+              }}
+              onMouseUp={() => {
+                if (tool === "draw") endDraw()
+              }}
+              onDblClick={finishPolygon}
             >
               <Layer>
                 {/* image */}
-                {image && <Group>{/* image is drawn as a rect background via Konva.Image is not used here to keep file shorter */}
-                  {/* simple workaround: show image using Konva.Image if you want, but this is ok for the tool’s core */}
-                </Group>}
+                {image && item && (
+                  <KonvaImage
+                    image={image}
+                    x={0}
+                    y={0}
+                    width={item.width}
+                    height={item.height}
+                  />
+                )}
               </Layer>
 
               <Layer>
-                {/* draw boxes */}
+                {/* draw boxes & polygons */}
                 {anns.map((a, i) => {
                   const cls = classById[a.class_id]
                   const stroke = cls?.color || "#22c55e"
                   const selected = i === selectedIdx
+                  const polygon = a.attributes?.polygon
+                  const hasPolygon = Array.isArray(polygon) && polygon.length >= 6
                   return (
                     <Group key={i}>
                       <Rect
@@ -496,11 +696,22 @@ export default function Annotate() {
                         stroke={stroke}
                         strokeWidth={selected ? 3 : 2}
                         dash={a.approved ? [] : [6, 4]}
-                        draggable={lock.ok}
+                        draggable={lock.ok && tool !== "pan"}
                         onClick={() => setSelectedIdx(i)}
                         onTap={() => setSelectedIdx(i)}
                         onDragEnd={(e) => onBoxDrag(i, e)}
+                        opacity={a.approved ? 0.35 : 0.25}
+                        fill={stroke}
                       />
+                      {hasPolygon && (
+                        <Line
+                          points={polygon as number[]}
+                          stroke={stroke}
+                          strokeWidth={2}
+                          closed
+                          opacity={0.6}
+                        />
+                      )}
                       <Text
                         x={a.x}
                         y={Math.max(0, a.y - 18)}
@@ -513,7 +724,7 @@ export default function Annotate() {
                 })}
 
                 {/* draft */}
-                {draft && (
+                {draft && tool === "draw" && (
                   <Rect
                     x={draft.x}
                     y={draft.y}
@@ -524,12 +735,19 @@ export default function Annotate() {
                     dash={[6, 4]}
                   />
                 )}
+                {polyActive && polyPoints.length > 1 && (
+                  <Line
+                    points={polyPoints.flatMap((p) => [p.x, p.y])}
+                    stroke="#0ea5e9"
+                    strokeWidth={2}
+                  />
+                )}
               </Layer>
             </Stage>
           </div>
 
           {/* thumbnails */}
-          <div className="border-t p-2 bg-white">
+          <div className="border-t border-blue-100/70 p-2 bg-white/80">
             <div className="flex items-center gap-2 overflow-x-auto">
               <button className="border rounded-lg px-3 py-1 text-sm" onClick={prev}>
                 prev
@@ -556,46 +774,117 @@ export default function Annotate() {
         </div>
 
         {/* right panel */}
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="font-semibold">boxes</div>
-          <div className="text-xs text-zinc-500 mt-1">click a row to focus. toggle approved for validation exports.</div>
-
-          <div className="mt-3 space-y-2 max-h-[560px] overflow-auto pr-1">
-            {anns.map((a, i) => {
-              const cls = classById[a.class_id]
-              const selected = i === selectedIdx
-              return (
-                <div
-                  key={i}
-                  className={`border rounded-xl p-3 cursor-pointer ${selected ? "border-zinc-900" : ""}`}
-                  onClick={() => setSelectedIdx(i)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">{cls?.name || a.class_id}</div>
-                    <button
-                      className={`text-xs px-2 py-1 rounded-full ${a.approved ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-700"}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleApproved(i)
-                      }}
-                    >
-                      {a.approved ? "approved" : "unapproved"}
-                    </button>
-                  </div>
-                  <div className="text-xs text-zinc-500 mt-1">
-                    x {a.x.toFixed(0)} y {a.y.toFixed(0)} w {a.w.toFixed(0)} h {a.h.toFixed(0)}
-                  </div>
-                </div>
-              )
-            })}
-            {!anns.length && <div className="text-sm text-zinc-500">no boxes yet. drag on canvas to create one.</div>}
+        <div className="bg-white border rounded-2xl p-4 flex flex-col gap-4">
+          <div>
+            <div className="font-semibold">classes</div>
+            <div className="text-xs text-zinc-500 mt-1">click to pick active class • 1..9 hotkeys</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {classes.map((c, idx) => {
+                const isActive = c.id === activeClassId
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setActiveClassId(c.id)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${
+                      isActive ? "border-zinc-900 bg-zinc-900 text-white" : "bg-white"
+                    }`}
+                    title={`press ${idx + 1} to select`}
+                  >
+                    <span
+                      className="w-3 h-3 rounded-full border"
+                      style={{ backgroundColor: c.color }}
+                    />
+                    <span>{idx + 1}. {c.name}</span>
+                  </button>
+                )
+              })}
+              {!classes.length && (
+                <div className="text-xs text-zinc-500">no classes defined. add them in the project dashboard.</div>
+              )}
+            </div>
           </div>
 
-          <div className="mt-4 border-t pt-4 text-xs text-zinc-500">
+          <div className="flex-1 min-h-0">
+            <div className="font-semibold">boxes</div>
+            <div className="text-xs text-zinc-500 mt-1">
+              click a row to focus. toggle approved for validation exports. add optional comments.
+            </div>
+
+            <div className="mt-3 space-y-2 max-h-[420px] overflow-auto pr-1">
+              {anns.map((a, i) => {
+                const cls = classById[a.class_id]
+                const selected = i === selectedIdx
+                return (
+                  <div
+                    key={i}
+                    className={`border rounded-xl p-3 cursor-pointer flex flex-col gap-1 ${selected ? "border-zinc-900 bg-zinc-50" : ""}`}
+                    onClick={() => setSelectedIdx(i)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-6 rounded-full"
+                          style={{ backgroundColor: cls?.color || "#22c55e" }}
+                        />
+                        <div className="font-medium">{cls?.name || a.class_id}</div>
+                      </div>
+                      <button
+                        className={`text-xs px-2 py-1 rounded-full ${a.approved ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-700"}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleApproved(i)
+                        }}
+                      >
+                        {a.approved ? "approved" : "unapproved"}
+                      </button>
+                    </div>
+                    <div className="text-xs text-zinc-500 mt-1 flex flex-wrap gap-2">
+                      <span>x {a.x.toFixed(0)}</span>
+                      <span>y {a.y.toFixed(0)}</span>
+                      <span>w {a.w.toFixed(0)}</span>
+                      <span>h {a.h.toFixed(0)}</span>
+                      {a.confidence != null && (
+                        <span>conf {(a.confidence * 100).toFixed(0)}%</span>
+                      )}
+                    </div>
+                    {selected && (
+                      <div className="mt-2">
+                        <textarea
+                          className="w-full border rounded-lg px-2 py-1 text-xs"
+                          placeholder="comment / QA note…"
+                          value={a.attributes?.note || ""}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            applyChange((arr) =>
+                              arr.map((ann, idx) =>
+                                idx === i
+                                  ? {
+                                      ...ann,
+                                      attributes: {
+                                        ...(ann.attributes || {}),
+                                        note: value,
+                                      },
+                                    }
+                                  : ann
+                              )
+                            )
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {!anns.length && <div className="text-sm text-zinc-500">no boxes yet. drag on canvas to create one.</div>}
+            </div>
+          </div>
+
+          <div className="mt-2 border-t pt-3 text-xs text-zinc-500">
             <div>hotkeys</div>
             <ul className="list-disc ml-4 mt-2 space-y-1">
               <li>ctrl+s save</li>
               <li>left/right switch image</li>
+              <li>b draw tool • v select tool • space pan tool</li>
               <li>1..9 select class</li>
               <li>del delete selected box</li>
               <li>w a s d nudge selected box (shift for bigger steps)</li>
@@ -605,11 +894,6 @@ export default function Annotate() {
         </div>
       </div>
 
-      {/* image preview note */}
-      <div className="mt-4 text-xs text-zinc-500">
-        note: if you want the actual image rendered inside konva, i can switch this file to use konva.image (it’s 10 more lines).
-        current file keeps it lean while still doing bbox workflow + export correctly.
-      </div>
     </div>
   )
 }

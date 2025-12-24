@@ -32,7 +32,8 @@ def auto_annotate_task(job_id: int):
         _update_job(db, job, status="running", progress=0.0, message="starting")
 
         payload = job.payload or {}
-        model_id = int(payload["model_id"])
+        # Support both model_id and model_weight_id for compatibility
+        model_id = int(payload.get("model_id") or payload.get("model_weight_id", 0))
         dataset_id = int(payload["dataset_id"])
         conf = float(payload.get("conf", 0.25))
         iou = float(payload.get("iou", 0.5))
@@ -48,24 +49,31 @@ def auto_annotate_task(job_id: int):
             _update_job(db, job, status="failed", message="model not found")
             return
 
-        aset_id = payload.get("annotation_set_id")
-        if aset_id:
-            aset = db.query(AnnotationSet).filter(AnnotationSet.id == int(aset_id), AnnotationSet.project_id == job.project_id).first()
-        else:
-            aset = get_or_create_default_annotation_set(db, job.project_id)
-        if not aset:
-            _update_job(db, job, status="failed", message="annotation set not found")
-            return
+        # Get class mapping from payload params (frontend sends it there)
+        class_mapping = {}
+        try:
+            params = payload.get("params", {})
+            class_mapping = params.get("class_mapping", {})
+        except Exception:
+            pass
+        class_mapping = {str(k).lower(): str(v).lower() for k, v in class_mapping.items()}
+
+        # Create a new annotation set for this auto-run
+        from datetime import datetime
+        aset_name = f"auto_run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        aset = AnnotationSet(
+            project_id=job.project_id,
+            name=aset_name,
+            source="auto",
+            model_weight_id=mw.id,
+            params={"class_mapping": class_mapping}
+        )
+        db.add(aset)
+        db.commit()
+        db.refresh(aset)
 
         classes = db.query(LabelClass).filter(LabelClass.project_id == job.project_id).all()
         name_to_class_id = {c.name.lower(): c.id for c in classes}
-
-        class_mapping = {}
-        try:
-            class_mapping = (aset.params or {}).get("class_mapping") or {}
-        except Exception:
-            class_mapping = {}
-        class_mapping = {str(k).lower(): str(v).lower() for k, v in class_mapping.items()}
 
         weights_path = Path(settings.storage_dir) / mw.rel_path
         if mw.framework != "ultralytics" or not weights_path.exists():

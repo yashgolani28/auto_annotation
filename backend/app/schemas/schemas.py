@@ -1,6 +1,6 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 class ProjectCreate(BaseModel):
     name: str
@@ -69,6 +69,7 @@ class AnnotationIn(BaseModel):
     h: float
     confidence: Optional[float] = None
     approved: bool = False
+    attributes: Optional[dict] = None
 
 class AnnotationOut(AnnotationIn):
     id: int
@@ -80,6 +81,8 @@ class JobOut(BaseModel):
     progress: float
     message: str
     payload: dict
+    created_at: datetime
+    updated_at: datetime
     class Config:
         from_attributes = True
 
@@ -90,6 +93,8 @@ class AutoAnnotateRequest(BaseModel):
     conf: float = 0.25
     iou: float = 0.5
     device: str = ""
+    # optional extra parameters, e.g. {"class_mapping": {"model_name": "project_name"}}
+    params: Dict[str, Any] = Field(default_factory=dict)
 
 class ExportRequest(BaseModel):
     dataset_id: int

@@ -33,6 +33,17 @@ def list_datasets(project_id: int, db: Session = Depends(get_db), user: User = D
     require_project_access(project_id, db, user)
     return db.query(Dataset).filter(Dataset.project_id == project_id).order_by(Dataset.created_at.desc()).all()
 
+
+@router.delete("/datasets/{dataset_id}")
+def delete_dataset(dataset_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    d = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="dataset not found")
+    require_project_role(d.project_id, ["reviewer"], db, user)
+    db.delete(d)
+    db.commit()
+    return {"status": "deleted"}
+
 @router.post("/datasets/{dataset_id}/upload")
 def upload_zip(dataset_id: int, file: UploadFile = File(...), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     d = db.query(Dataset).filter(Dataset.id == dataset_id).first()
