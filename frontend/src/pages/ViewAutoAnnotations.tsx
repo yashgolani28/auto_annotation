@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, Link } from "react-router-dom"
-import { api, mediaUrl } from "../api"
+import { api, mediaUrlCandidates } from "../api"
 import { useToast } from "../components/Toast"
 
 type Dataset = { id: number; name: string }
@@ -26,6 +26,77 @@ type ItemWithAnnotations = Item & {
   annotations: Ann[]
 }
 
+function _pathFromUrl(u: string) {
+  try {
+    const url = new URL(u)
+    return url.pathname + url.search
+  } catch {
+    return u
+  }
+}
+
+type SmartItemImageProps = {
+  itemId: number
+  alt: string
+  className?: string
+  loading?: "lazy" | "eager"
+  imgRef?: React.RefObject<HTMLImageElement>
+}
+
+// Loads item images robustly in both setups:
+// - media route mounted at /media/... or /api/media/...
+// - media route requiring Authorization header (fallback to authed blob fetch)
+function SmartItemImage({ itemId, alt, className, loading, imgRef }: SmartItemImageProps) {
+  const candidates = useMemo(() => mediaUrlCandidates(itemId), [itemId])
+
+  const [srcIdx, setSrcIdx] = useState(0)
+  const [src, setSrc] = useState<string>(candidates[0] || "")
+  const blobUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    setSrcIdx(0)
+    setSrc(candidates[0] || "")
+
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current)
+      blobUrlRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, candidates.join("|")])
+
+  async function fetchAsAuthedBlob() {
+    for (const u of candidates) {
+      try {
+        const path = _pathFromUrl(u) // make it relative for axios baseURL
+        const res = await api.get(path, { responseType: "blob" })
+
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+        const objectUrl = URL.createObjectURL(res.data)
+        blobUrlRef.current = objectUrl
+        setSrc(objectUrl)
+        return
+      } catch {
+        // try next candidate
+      }
+    }
+  }
+
+  function handleError() {
+    // 1) try next candidate URL
+    if (srcIdx + 1 < candidates.length) {
+      const nextIdx = srcIdx + 1
+      setSrcIdx(nextIdx)
+      setSrc(candidates[nextIdx])
+      return
+    }
+
+    // 2) fallback: fetch with Authorization header via axios -> blob
+    void fetchAsAuthedBlob()
+  }
+
+  return <img ref={imgRef as any} src={src} onError={handleError} alt={alt} className={className} loading={loading} />
+}
+
 function AnnotationOverlay({
   item,
   annotations,
@@ -36,7 +107,7 @@ function AnnotationOverlay({
   classById: Record<number, LabelClass>
 }) {
   const [imgSize, setImgSize] = useState<{ width: number; height: number } | null>(null)
-  const imgRef = React.useRef<HTMLImageElement>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
     const img = imgRef.current
@@ -61,13 +132,9 @@ function AnnotationOverlay({
 
   return (
     <div className="relative">
-      <img ref={imgRef} src={mediaUrl(item.id)} alt={item.file_name} className="w-full h-auto" />
+      <SmartItemImage imgRef={imgRef} itemId={item.id} alt={item.file_name} className="w-full h-auto" />
       {imgSize && (
-        <svg
-          className="absolute inset-0 w-full h-full"
-          style={{ pointerEvents: "none" }}
-          viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}
-        >
+        <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }} viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}>
           {annotations.map((ann, idx) => {
             const cls = classById[ann.class_id]
             return (
@@ -90,9 +157,7 @@ function AnnotationOverlay({
                   style={{ textShadow: "0 1px 2px rgba(255,255,255,0.8)" }}
                 >
                   {cls?.name || "unknown"}
-                  {ann.confidence !== null && ann.confidence !== undefined && (
-                    <> {(ann.confidence * 100).toFixed(0)}%</>
-                  )}
+                  {ann.confidence !== null && ann.confidence !== undefined && <> {(ann.confidence * 100).toFixed(0)}%</>}
                 </text>
               </g>
             )
@@ -103,13 +168,16 @@ function AnnotationOverlay({
   )
 }
 
+type ItemsWithAnnotationsResponse = Array<{ item: Item; annotations: Ann[]; annotation_count: number }>
+
 export default function ViewAutoAnnotations() {
   const { id } = useParams()
   const projectId = Number(id)
   const { showToast } = useToast()
 
   const [datasets, setDatasets] = useState<Dataset[]>([])
-  const [allAutoSets, setAllAutoSets] = useState<ASet[]>([])
+  const [allSets, setAllSets] = useState<ASet[]>([])
+  const [autoLikeSets, setAutoLikeSets] = useState<ASet[]>([])
   const [classes, setClasses] = useState<LabelClass[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -118,6 +186,9 @@ export default function ViewAutoAnnotations() {
   const [items, setItems] = useState<ItemWithAnnotations[]>([])
   const [selectedItem, setSelectedItem] = useState<ItemWithAnnotations | null>(null)
 
+  const [autoDetecting, setAutoDetecting] = useState(false)
+  const autoDetectRunId = useRef(0)
+
   const classById = useMemo(() => {
     return classes.reduce((acc: Record<number, LabelClass>, c: LabelClass) => {
       acc[c.id] = c
@@ -125,11 +196,67 @@ export default function ViewAutoAnnotations() {
     }, {} as Record<number, LabelClass>)
   }, [classes])
 
-  // show only auto-sets relevant for current dataset (if dataset_id exists)
-  const visibleAutoSets = useMemo(() => {
-    if (!datasetId) return allAutoSets
-    return allAutoSets.filter((s) => !s.dataset_id || s.dataset_id === datasetId)
-  }, [allAutoSets, datasetId])
+  // Show only sets relevant for current dataset if dataset_id exists.
+  // If dataset_id is missing, keep it visible (most backends don't populate dataset_id on AnnotationSet).
+  const visibleSets = useMemo(() => {
+    if (!datasetId) return allSets
+    return allSets.filter((s) => !s.dataset_id || s.dataset_id === datasetId)
+  }, [allSets, datasetId])
+
+  function reorderById<T extends { id: number }>(arr: T[], preferredId: number) {
+    if (!preferredId) return arr
+    const idx = arr.findIndex((x) => x.id === preferredId)
+    if (idx <= 0) return arr
+    return [arr[idx], ...arr.slice(0, idx), ...arr.slice(idx + 1)]
+  }
+
+  async function probeHasAnyAnnotations(did: number, asetId: number) {
+    // Limit=1 probe (cheap): if it returns 1+ rows, that pair is valid.
+    const res = await api.get(`/api/datasets/${did}/items-with-annotations`, {
+      params: { annotation_set_id: asetId, aset: asetId, limit: 1, offset: 0 }
+    })
+    const data = res.data as ItemsWithAnnotationsResponse
+    return Array.isArray(data) && data.length > 0
+  }
+
+  async function autoDetectPair(opts?: { preferredDatasetId?: number; preferredSetId?: number }) {
+    const runId = ++autoDetectRunId.current
+    const prefDid = opts?.preferredDatasetId || 0
+    const prefAset = opts?.preferredSetId || 0
+
+    if (datasets.length === 0 || allSets.length === 0) return
+
+    setAutoDetecting(true)
+    try {
+      // Prefer "auto-ish" sets first, then everything else
+      const setCandidatesRaw = autoLikeSets.length ? autoLikeSets : allSets
+      const dsCandidatesRaw = datasets
+
+      const setCandidates = reorderById(setCandidatesRaw, prefAset)
+      const dsCandidates = reorderById(dsCandidatesRaw, prefDid)
+
+      // Try: (preferred) -> scan until first match
+      for (const aset of setCandidates) {
+        for (const ds of dsCandidates) {
+          if (autoDetectRunId.current !== runId) return // cancelled by a new run
+          try {
+            const ok = await probeHasAnyAnnotations(ds.id, aset.id)
+            if (ok) {
+              setDatasetId(ds.id)
+              setAnnotationSetId(aset.id)
+              return
+            }
+          } catch {
+            // ignore probe errors, continue
+          }
+        }
+      }
+
+      showToast("Could not find any (dataset, set) pair with annotations.", "error")
+    } finally {
+      if (autoDetectRunId.current === runId) setAutoDetecting(false)
+    }
+  }
 
   async function refresh() {
     try {
@@ -140,30 +267,38 @@ export default function ViewAutoAnnotations() {
         api.get(`/api/projects/${projectId}/classes`)
       ])
 
-      setDatasets(d.data)
-      setClasses(c.data)
+      const ds = (d.data || []) as Dataset[]
+      const sets = ((s.data || []) as ASet[]) || []
+      const cls = (c.data || []) as LabelClass[]
 
-      // case-insensitive "auto"
-      const autoAnnotationSets: ASet[] = (s.data as ASet[]).filter((aset) => {
+      setDatasets(ds)
+      setAllSets(sets)
+      setClasses(cls)
+
+      const autoLike = sets.filter((aset) => {
         const src = String(aset.source ?? "").toLowerCase().trim()
-        return src === "auto"
+        const name = String(aset.name ?? "").toLowerCase().trim()
+        return src.includes("auto") || name.includes("auto")
       })
-      setAllAutoSets(autoAnnotationSets)
+      setAutoLikeSets(autoLike)
 
-      // default dataset
-      if (!datasetId && d.data.length) {
-        setDatasetId(d.data[0].id)
-      }
+      // If user already has selections, keep them.
+      // Otherwise pick defaults *robustly* by scanning for a pair that actually has annotations.
+      const nextDatasetId = datasetId || (ds[0]?.id ?? 0)
+      const nextSetId = annotationSetId || (sets[0]?.id ?? 0)
 
-      // default annotation set (prefer one matching first dataset if dataset_id exists)
-      if (!annotationSetId && autoAnnotationSets.length) {
-        const preferredDatasetId = (d.data?.[0]?.id as number) || 0
-        const preferred =
-          autoAnnotationSets.find((x) => x.dataset_id && x.dataset_id === preferredDatasetId) ||
-          autoAnnotationSets[0]
-        setAnnotationSetId(preferred.id)
+      if (!datasetId && nextDatasetId) setDatasetId(nextDatasetId)
+      if (!annotationSetId && nextSetId) setAnnotationSetId(nextSetId)
+
+      // Auto-detect only when we don't have BOTH chosen yet (initial load),
+      // or when defaults are likely wrong.
+      if ((!datasetId || !annotationSetId) && ds.length && sets.length) {
+        // prefer autoLike set if available
+        const prefSet = (autoLike[0]?.id ?? nextSetId) || 0
+        void autoDetectPair({ preferredDatasetId: nextDatasetId, preferredSetId: prefSet })
       }
     } catch (err: any) {
+      console.error("refresh() failed:", err)
       showToast(err?.response?.data?.detail || "Failed to load data", "error")
     } finally {
       setLoading(false)
@@ -175,14 +310,14 @@ export default function ViewAutoAnnotations() {
     try {
       setLoading(true)
 
-      const res = await api.get(
-        `/api/datasets/${datasetId}/items-with-annotations`,
-        { params: { annotation_set_id: annotationSetId, limit: 500 } }
-      )
+      const res = await api.get(`/api/datasets/${datasetId}/items-with-annotations`, {
+        // pass both names to be compatible with older/newer backends
+        params: { annotation_set_id: annotationSetId, aset: annotationSetId, limit: 500 }
+      })
 
-      const data = res.data as Array<{ item: Item; annotations: Ann[]; annotation_count: number }>
+      const data = res.data as ItemsWithAnnotationsResponse
 
-      const itemsWithAnns: ItemWithAnnotations[] = data.map((entry) => ({
+      const itemsWithAnns: ItemWithAnnotations[] = (data || []).map((entry) => ({
         ...entry.item,
         annotationCount: entry.annotation_count,
         annotations: entry.annotations
@@ -204,18 +339,18 @@ export default function ViewAutoAnnotations() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // if dataset changes, ensure annotationSetId is valid for this dataset
+  // If dataset changes, keep annotationSetId valid for that dataset filter (only if backend provides dataset_id on sets).
   useEffect(() => {
     if (!datasetId) return
-    if (visibleAutoSets.length === 0) {
+    if (visibleSets.length === 0) {
       setAnnotationSetId(0)
       setItems([])
       return
     }
-    const ok = visibleAutoSets.some((s) => s.id === annotationSetId)
-    if (!ok) setAnnotationSetId(visibleAutoSets[0].id)
+    const ok = visibleSets.some((s) => s.id === annotationSetId)
+    if (!ok) setAnnotationSetId(visibleSets[0].id)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [datasetId, visibleAutoSets.length])
+  }, [datasetId, visibleSets.length])
 
   useEffect(() => {
     loadItemsWithAnnotations()
@@ -256,19 +391,28 @@ export default function ViewAutoAnnotations() {
             className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={annotationSetId}
             onChange={(e) => setAnnotationSetId(Number(e.target.value))}
-            disabled={visibleAutoSets.length === 0}
-            title={visibleAutoSets.length === 0 ? "No auto annotation sets for this dataset" : ""}
+            disabled={visibleSets.length === 0}
+            title={visibleSets.length === 0 ? "No annotation sets available" : ""}
           >
-            {visibleAutoSets.length === 0 ? (
-              <option value={0}>no auto annotation set</option>
+            {visibleSets.length === 0 ? (
+              <option value={0}>no annotation set</option>
             ) : (
-              visibleAutoSets.map((s) => (
+              visibleSets.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} (auto)
+                  {s.name} ({String(s.source || "unknown")})
                 </option>
               ))
             )}
           </select>
+
+          <button
+            className="border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors disabled:opacity-50"
+            disabled={autoDetecting || datasets.length === 0 || allSets.length === 0}
+            onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
+            title="Scan datasets/sets to find where annotations exist"
+          >
+            {autoDetecting ? "Auto-detecting..." : "Auto-detect"}
+          </button>
 
           {annotationSetId > 0 && (
             <Link
@@ -288,9 +432,21 @@ export default function ViewAutoAnnotations() {
           <div className="text-blue-700 mb-2 font-medium">No auto-annotated images found</div>
           <div className="text-sm text-blue-600">
             {annotationSetId === 0
-              ? "Select an auto-annotation set to view images"
+              ? "Select an annotation set to view images"
               : "This annotation set has no annotations for the selected dataset"}
           </div>
+
+          {annotationSetId > 0 && (
+            <div className="mt-4">
+              <button
+                className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium disabled:opacity-50"
+                disabled={autoDetecting}
+                onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
+              >
+                {autoDetecting ? "Scanning..." : "Try auto-detecting the right dataset/set"}
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -307,9 +463,7 @@ export default function ViewAutoAnnotations() {
               </div>
               <div>
                 <div className="text-xs text-zinc-500">Avg per Image</div>
-                <div className="text-2xl font-semibold">
-                  {items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}
-                </div>
+                <div className="text-2xl font-semibold">{items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}</div>
               </div>
               <div>
                 <div className="text-xs text-zinc-500">Classes Detected</div>
@@ -353,15 +507,8 @@ export default function ViewAutoAnnotations() {
                 onClick={() => setSelectedItem(item)}
               >
                 <div className="relative aspect-square bg-blue-50">
-                  <img
-                    src={mediaUrl(item.id)}
-                    alt={item.file_name}
-                    className="w-full h-full object-contain"
-                    loading="lazy"
-                  />
-                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                    {item.annotationCount}
-                  </div>
+                  <SmartItemImage itemId={item.id} alt={item.file_name} className="w-full h-full object-contain" loading="lazy" />
+                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">{item.annotationCount}</div>
                 </div>
                 <div className="p-3">
                   <div className="text-sm font-medium truncate text-slate-900">{item.file_name}</div>
@@ -382,16 +529,12 @@ export default function ViewAutoAnnotations() {
                         >
                           {cls?.name || "unknown"}
                           {ann.confidence !== null && ann.confidence !== undefined && (
-                            <span className="ml-1 opacity-70">
-                              {(ann.confidence * 100).toFixed(0)}%
-                            </span>
+                            <span className="ml-1 opacity-70">{(ann.confidence * 100).toFixed(0)}%</span>
                           )}
                         </span>
                       )
                     })}
-                    {item.annotations.length > 3 && (
-                      <span className="text-xs text-blue-500">+{item.annotations.length - 3}</span>
-                    )}
+                    {item.annotations.length > 3 && <span className="text-xs text-blue-500">+{item.annotations.length - 3}</span>}
                   </div>
                 </div>
               </div>
@@ -402,10 +545,7 @@ export default function ViewAutoAnnotations() {
 
       {/* Image Detail Modal */}
       {selectedItem && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedItem(null)}
-        >
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
           <div
             className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-200"
             onClick={(e) => e.stopPropagation()}
@@ -424,10 +564,7 @@ export default function ViewAutoAnnotations() {
                 >
                   Edit in Editor
                 </Link>
-                <button
-                  onClick={() => setSelectedItem(null)}
-                  className="border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors"
-                >
+                <button onClick={() => setSelectedItem(null)} className="border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors">
                   Close
                 </button>
               </div>
@@ -439,9 +576,7 @@ export default function ViewAutoAnnotations() {
               </div>
 
               <div className="space-y-2">
-                <div className="font-semibold mb-2 text-slate-900">
-                  Annotations ({selectedItem.annotations.length})
-                </div>
+                <div className="font-semibold mb-2 text-slate-900">Annotations ({selectedItem.annotations.length})</div>
                 {selectedItem.annotations.map((ann, idx) => {
                   const cls = classById[ann.class_id]
                   return (
@@ -450,10 +585,7 @@ export default function ViewAutoAnnotations() {
                       className="border border-blue-200 rounded-lg p-3 bg-white flex items-center justify-between hover:bg-blue-50/50 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <div
-                          className="w-4 h-4 rounded border border-blue-300"
-                          style={{ backgroundColor: cls?.color || "#3b82f6" }}
-                        />
+                        <div className="w-4 h-4 rounded border border-blue-300" style={{ backgroundColor: cls?.color || "#3b82f6" }} />
                         <div>
                           <div className="font-medium text-slate-900">{cls?.name || "unknown"}</div>
                           <div className="text-xs text-blue-600">
@@ -462,9 +594,7 @@ export default function ViewAutoAnnotations() {
                         </div>
                       </div>
                       {ann.confidence !== null && ann.confidence !== undefined && (
-                        <div className="text-sm text-blue-700 font-medium">
-                          {(ann.confidence * 100).toFixed(1)}% confidence
-                        </div>
+                        <div className="text-sm text-blue-700 font-medium">{(ann.confidence * 100).toFixed(1)}% confidence</div>
                       )}
                     </div>
                   )

@@ -52,10 +52,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   ;(e.currentTarget as HTMLImageElement).style.display = "none"
                 }}
               />
-              {/* fallback if img fails */}
-              <div className="w-full h-full flex items-center justify-center text-blue-600 font-bold text-lg">
-                E
-              </div>
             </div>
 
             <div className="min-w-0">

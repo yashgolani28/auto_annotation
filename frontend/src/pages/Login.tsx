@@ -49,9 +49,6 @@ export default function Login() {
                 ;(e.currentTarget as HTMLImageElement).style.display = "none"
               }}
             />
-            <div className="w-full h-full flex items-center justify-center text-blue-700 font-bold">
-              E
-            </div>
           </div>
           <div>
             <div className="text-xl font-semibold">sign in</div>

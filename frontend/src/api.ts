@@ -1,51 +1,122 @@
-import axios from 'axios'
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 
-export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000"
 
-let accessToken: string | null = null
-let refreshToken: string | null = null
+// ------------------------------------------------------------------
+// Token storage (supports multiple legacy keys + always persists)
+// ------------------------------------------------------------------
+const ACCESS_KEYS = ["access_token", "token", "jwt", "aa_access_token"]
+const REFRESH_KEYS = ["refresh_token", "aa_refresh_token"]
+
+function readFirst(keys: string[]): string | null {
+  try {
+    for (const k of keys) {
+      const v = localStorage.getItem(k)
+      if (v && v.trim()) return v.trim()
+    }
+  } catch {
+    // ignore (SSR / privacy mode)
+  }
+  return null
+}
+
+function writeToken(key: string, value: string | null) {
+  try {
+    if (!value) localStorage.removeItem(key)
+    else localStorage.setItem(key, value)
+  } catch {
+    // ignore
+  }
+}
+
+let accessToken: string | null = readFirst(ACCESS_KEYS)
+let refreshToken: string | null = readFirst(REFRESH_KEYS)
 
 export function setTokens(a: string | null, r: string | null) {
   accessToken = a
   refreshToken = r
+
+  // persist using canonical keys (also keeps your current login working after refresh)
+  writeToken("access_token", accessToken)
+  writeToken("refresh_token", refreshToken)
 }
 
 export function getTokens() {
   return { accessToken, refreshToken }
 }
 
-export const api = axios.create({ baseURL: API_BASE })
-
-api.interceptors.request.use((config) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:19',message:'axios request interceptor',data:{url:config.url,baseURL:config.baseURL,fullURL:config.baseURL+config.url,method:config.method,hasAuth:!!accessToken},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
-  if (accessToken) config.headers.Authorization = `Bearer ${accessToken}`
-  return config
-}, (error) => {
-  // #region agent log
-  fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:request-error',message:'axios request error',data:{errorMessage:error?.message,errorString:String(error)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
-  return Promise.reject(error);
+// ------------------------------------------------------------------
+// Axios instance
+// ------------------------------------------------------------------
+export const api = axios.create({
+  baseURL: API_BASE,
 })
 
+// Attach Authorization header on every request
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  // re-read from localStorage if memory token is missing (page reload etc.)
+  if (!accessToken) accessToken = readFirst(ACCESS_KEYS)
+  if (!refreshToken) refreshToken = readFirst(REFRESH_KEYS)
+
+  if (accessToken) {
+    config.headers = config.headers ?? {}
+    config.headers.Authorization = `Bearer ${accessToken}`
+  }
+  return config
+})
+
+// One-shot refresh on 401
 api.interceptors.response.use(
-  (r) => r,
-  async (err) => {
-    const original = err.config
-    if (err.response?.status === 401 && refreshToken && !original.__retried) {
-      original.__retried = true
-      const rr = await axios.post(`${API_BASE}/api/auth/refresh`, { refresh_token: refreshToken })
-      accessToken = rr.data.access_token
-      original.headers.Authorization = `Bearer ${accessToken}`
-      return axios(original)
+  (res) => res,
+  async (err: AxiosError) => {
+    const original: any = err.config
+    const status = err.response?.status
+
+    if (status === 401 && !original?.__retried) {
+      // refresh token might exist only in storage
+      if (!refreshToken) refreshToken = readFirst(REFRESH_KEYS)
+
+      if (refreshToken) {
+        original.__retried = true
+        try {
+          const rr = await axios.post(
+            `${API_BASE}/api/auth/refresh`,
+            { refresh_token: refreshToken },
+            { headers: { "Content-Type": "application/json" } }
+          )
+
+          const newAccess = (rr.data as any)?.access_token as string | undefined
+          if (newAccess && newAccess.trim()) {
+            setTokens(newAccess.trim(), refreshToken)
+            original.headers = original.headers ?? {}
+            original.headers.Authorization = `Bearer ${newAccess.trim()}`
+            return axios(original)
+          }
+        } catch {
+          // refresh failed → clear tokens
+          setTokens(null, null)
+        }
+      } else {
+        // no refresh token → clear tokens
+        setTokens(null, null)
+      }
     }
+
     throw err
   }
 )
 
+// ------------------------------------------------------------------
+// helpers
+// ------------------------------------------------------------------
 export function mediaUrl(itemId: number) {
   return `${API_BASE}/media/items/${itemId}`
+}
+
+export function mediaUrlCandidates(itemId: number) {
+  const a = `${API_BASE}/media/items/${itemId}`
+  const b = `${API_BASE}/api/media/items/${itemId}`
+  return Array.from(new Set([a, b]))
 }
 
 export function wsJobUrl(jobId: number) {
@@ -56,4 +127,10 @@ export function wsJobUrl(jobId: number) {
 
 export function logoUrl() {
   return `${API_BASE}/media/logo`
+}
+
+export function logoUrlCandidates() {
+  const a = `${API_BASE}/media/logo`
+  const b = `${API_BASE}/api/media/logo`
+  return Array.from(new Set([a, b]))
 }
