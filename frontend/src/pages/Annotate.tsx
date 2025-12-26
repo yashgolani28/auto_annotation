@@ -1,6 +1,6 @@
 // frontend/src/pages/Annotate.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useSearchParams } from "react-router-dom"
 import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Line } from "react-konva"
 import useImage from "use-image"
 import { api, mediaUrl } from "../api"
@@ -32,6 +32,7 @@ const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 export default function Annotate() {
   const { id } = useParams()
+  const [searchParams] = useSearchParams()
   const projectId = Number(id)
   const { user } = useAuth()
   const { showToast } = useToast()
@@ -115,14 +116,54 @@ export default function Annotate() {
     setClasses(c.data)
     setAnnotationSets(s.data)
 
-    if (!datasetId && d.data.length) setDatasetId(d.data[0].id)
-    if (!annotationSetId && s.data.length) setAnnotationSetId(s.data[0].id)
+    // Check URL parameters for direct navigation
+    const urlDataset = searchParams.get("dataset")
+    const urlAset = searchParams.get("aset")
+    const urlItem = searchParams.get("item")
+
+    if (!datasetId) {
+      if (urlDataset) {
+        const dsId = Number(urlDataset)
+        if (d.data.find((ds: Dataset) => ds.id === dsId)) {
+          setDatasetId(dsId)
+        } else if (d.data.length) {
+          setDatasetId(d.data[0].id)
+        }
+      } else if (d.data.length) {
+        setDatasetId(d.data[0].id)
+      }
+    }
+
+    if (!annotationSetId) {
+      if (urlAset) {
+        const asetId = Number(urlAset)
+        if (s.data.find((aset: ASet) => aset.id === asetId)) {
+          setAnnotationSetId(asetId)
+        } else if (s.data.length) {
+          setAnnotationSetId(s.data[0].id)
+        }
+      } else if (s.data.length) {
+        setAnnotationSetId(s.data[0].id)
+      }
+    }
+
     if (!activeClassId && c.data.length) setActiveClassId(c.data[0].id)
   }
 
   async function loadItems(dsId: number) {
     const r = await api.get(`/api/datasets/${dsId}/items?limit=500&offset=0`)
     setItems(r.data)
+    
+    // Check if URL has specific item parameter
+    const urlItem = searchParams.get("item")
+    if (urlItem) {
+      const itemId = Number(urlItem)
+      const itemIndex = r.data.findIndex((it: Item) => it.id === itemId)
+      if (itemIndex >= 0) {
+        setIndex(itemIndex)
+        return
+      }
+    }
     setIndex(0)
   }
 
@@ -503,9 +544,9 @@ export default function Annotate() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <select
-            className="border rounded-lg px-3 py-2"
+            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={datasetId}
             onChange={(e) => setDatasetId(Number(e.target.value))}
           >
@@ -517,7 +558,7 @@ export default function Annotate() {
           </select>
 
           <select
-            className="border rounded-lg px-3 py-2"
+            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={annotationSetId}
             onChange={(e) => setAnnotationSetId(Number(e.target.value))}
           >
@@ -529,7 +570,7 @@ export default function Annotate() {
           </select>
 
           <select
-            className="border rounded-lg px-3 py-2"
+            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={activeClassId}
             onChange={(e) => setActiveClassId(Number(e.target.value))}
           >
@@ -540,11 +581,11 @@ export default function Annotate() {
             ))}
           </select>
 
-          <button className="border rounded-lg px-3 py-2" onClick={fitToScreen}>
+          <button className="border border-blue-200 rounded-lg px-3 py-2 bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={fitToScreen}>
             fit
           </button>
 
-          <button className="bg-zinc-900 text-white rounded-lg px-4 py-2" onClick={save} disabled={!lock.ok}>
+          <button className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm" onClick={save} disabled={!lock.ok}>
             save
           </button>
         </div>

@@ -61,18 +61,18 @@ export default function Login() {
 
         <form className="mt-6 space-y-3" onSubmit={onSubmit}>
           <div>
-            <label className="text-xs text-slate-600">email</label>
+            <label className="text-xs text-blue-600 font-medium">email</label>
             <input
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-xs text-slate-600">password</label>
+            <label className="text-xs text-blue-600 font-medium">password</label>
             <input
               type="password"
-              className="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
@@ -84,7 +84,7 @@ export default function Login() {
             </div>
           )}
 
-          <button className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2.5 font-medium transition-colors">
+          <button className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2.5 font-medium transition-colors shadow-sm">
             login
           </button>
         </form>

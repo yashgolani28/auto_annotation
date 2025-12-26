@@ -97,3 +97,25 @@ def add_member(project_id: int, payload: dict, db: Session = Depends(get_db), us
     db.add(ProjectMember(project_id=project_id, user_id=target.id, role=role))
     db.commit()
     return {"status": "ok"}
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Delete a project and all its associated data"""
+    require_project_role(project_id, ["reviewer"], db, user)
+    p = db.query(Project).filter(Project.id == project_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="project not found")
+    db.delete(p)
+    db.commit()
+    return {"status": "deleted"}
+
+@router.delete("/projects/{project_id}/classes/{class_id}")
+def delete_class(project_id: int, class_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Delete a single class from a project"""
+    require_project_role(project_id, ["reviewer"], db, user)
+    cls = db.query(LabelClass).filter(LabelClass.id == class_id, LabelClass.project_id == project_id).first()
+    if not cls:
+        raise HTTPException(status_code=404, detail="class not found")
+    db.delete(cls)
+    db.commit()
+    return {"status": "deleted"}

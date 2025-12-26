@@ -68,7 +68,8 @@ export default function ProjectDashboard() {
   const [importDatasetId, setImportDatasetId] = useState<number>(0)
   const [importFile, setImportFile] = useState<File | null>(null)
 
-  const canAdmin = useMemo(() => user?.role === "admin", [user?.role])
+  const canAdmin = useMemo(() => user?.role === "admin" || user?.role === "reviewer", [user?.role])
+  const isGlobalAdmin = useMemo(() => user?.role === "admin", [user?.role])
 
   async function refresh() {
     try {
@@ -271,19 +272,25 @@ export default function ProjectDashboard() {
             annotate
           </Link>
           <Link
-            className="px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
             to={`/project/${projectId}/auto`}
           >
             auto
           </Link>
           <Link
-            className="px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
+            to={`/project/${projectId}/view-auto`}
+          >
+            view auto
+          </Link>
+          <Link
+            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
             to={`/project/${projectId}/export`}
           >
             export
           </Link>
           <Link
-            className="px-4 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
             to={`/project/${projectId}/jobs`}
           >
             jobs
@@ -291,7 +298,7 @@ export default function ProjectDashboard() {
           <button
             className={cx(
               "px-4 py-2 rounded-xl border transition-colors",
-              loading ? "bg-slate-100 text-slate-500 border-slate-200 cursor-not-allowed" : "bg-white hover:bg-slate-50 border-slate-200"
+              loading ? "bg-blue-100 text-blue-500 border-blue-200 cursor-not-allowed" : "bg-white hover:bg-blue-50 border-blue-200 text-blue-700"
             )}
             onClick={refresh}
             disabled={loading}
@@ -315,18 +322,38 @@ export default function ProjectDashboard() {
           }
         >
           <textarea
-            className="w-full border border-slate-200 rounded-2xl p-3 min-h-[150px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className="w-full border border-blue-200 rounded-2xl p-3 min-h-[150px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={classText}
             onChange={(e) => setClassText(e.target.value)}
           />
           <div className="mt-3 flex flex-wrap gap-2">
             {classes.map((c) => (
-              <span
+              <div
                 key={c.id}
-                className="px-3 py-1 text-xs rounded-full border border-slate-200 bg-white/80 text-slate-800"
+                className="group relative px-3 py-1 text-xs rounded-full border border-blue-200 bg-blue-50/80 text-blue-800 flex items-center gap-2"
+                style={{ borderColor: c.color + "40", backgroundColor: c.color + "15", color: c.color || "#1e40af" }}
               >
-                {c.name}
-              </span>
+                <span>{c.name}</span>
+                {canAdmin && (
+                  <button
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 ml-1"
+                    onClick={async () => {
+                      const ok = confirm(`Delete class "${c.name}"? This cannot be undone.`)
+                      if (!ok) return
+                      try {
+                        await api.delete(`/api/projects/${projectId}/classes/${c.id}`)
+                        showToast("Class deleted", "success")
+                        refresh()
+                      } catch (err: any) {
+                        showToast(err?.response?.data?.detail || "Failed to delete class", "error")
+                      }
+                    }}
+                    title="Delete class"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </Section>
@@ -334,12 +361,12 @@ export default function ProjectDashboard() {
         <Section title="dataset upload" subtitle="zip of images">
           <div className="flex flex-col md:flex-row gap-2">
             <input
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
               value={datasetName}
               onChange={(e) => setDatasetName(e.target.value)}
             />
             <input
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
               type="file"
               accept=".zip"
               onChange={(e) => setZipFile(e.target.files?.[0] || null)}
@@ -358,7 +385,7 @@ export default function ProjectDashboard() {
               {datasets.map((d) => (
                 <div
                   key={d.id}
-                  className="border border-slate-200 rounded-2xl p-4 bg-white/70 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                  className="border border-blue-200 rounded-2xl p-4 bg-white/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                 >
                   <div>
                     <div className="font-semibold text-slate-900">{d.name}</div>
@@ -369,7 +396,7 @@ export default function ProjectDashboard() {
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-slate-500">seed</span>
                       <input
-                        className="border border-slate-200 rounded-xl px-2 py-1 w-24 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        className="border border-blue-200 rounded-xl px-2 py-1 w-24 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
                         type="number"
                         value={splitSeed}
                         onChange={(e) => setSplitSeed(Number(e.target.value))}
@@ -377,7 +404,7 @@ export default function ProjectDashboard() {
                     </div>
 
                     <button
-                      className="rounded-xl px-3 py-2 text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+                      className="rounded-xl px-3 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
                       onClick={() => doRandomSplit(d.id)}
                     >
                       random split
@@ -406,7 +433,7 @@ export default function ProjectDashboard() {
               ))}
 
               {!datasets.length && (
-                <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+                <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
                   no datasets yet.
                 </div>
               )}
@@ -417,12 +444,12 @@ export default function ProjectDashboard() {
         <Section title="models" subtitle="upload .pt or .onnx weights">
           <div className="flex flex-col md:flex-row gap-2">
             <input
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
             />
             <input
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
               type="file"
               accept=".pt,.onnx"
               onChange={(e) => setModelFile(e.target.files?.[0] || null)}
@@ -437,7 +464,7 @@ export default function ProjectDashboard() {
 
           <div className="mt-4 grid gap-2">
             {models.map((m) => (
-              <div key={m.id} className="border border-slate-200 rounded-2xl p-4 bg-white/70">
+              <div key={m.id} className="border border-blue-200 rounded-2xl p-4 bg-white/80">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-semibold text-slate-900 truncate">{m.name}</div>
@@ -469,7 +496,7 @@ export default function ProjectDashboard() {
             ))}
 
             {!models.length && (
-              <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+              <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 no models uploaded yet.
               </div>
             )}
@@ -479,13 +506,13 @@ export default function ProjectDashboard() {
         <Section title="members" subtitle="project access control">
           <div className="flex flex-col md:flex-row gap-2">
             <input
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 flex-1"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
               placeholder="user email"
               value={memberEmail}
               onChange={(e) => setMemberEmail(e.target.value)}
             />
             <select
-              className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={memberRole}
               onChange={(e) => setMemberRole(e.target.value)}
             >
@@ -505,20 +532,20 @@ export default function ProjectDashboard() {
             {members.map((m) => (
               <div
                 key={m.user_id}
-                className="border border-slate-200 rounded-2xl p-4 bg-white/70 flex items-center justify-between gap-3"
+                className="border border-blue-200 rounded-2xl p-4 bg-white/80 flex items-center justify-between gap-3"
               >
                 <div className="min-w-0">
                   <div className="font-semibold text-slate-900 truncate">{m.email}</div>
-                  <div className="text-xs text-slate-500 mt-1">{m.name}</div>
+                  <div className="text-xs text-blue-600 mt-1">{m.name}</div>
                 </div>
-                <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
                   {m.role}
                 </span>
               </div>
             ))}
 
             {!members.length && (
-              <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
+              <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
                 no members yet.
               </div>
             )}
@@ -529,7 +556,7 @@ export default function ProjectDashboard() {
           <Section title="import labels" subtitle="import yolo zip (txt) or coco json">
             <div className="flex flex-wrap gap-2 items-center">
               <select
-                className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
                 value={importDatasetId}
                 onChange={(e) => setImportDatasetId(Number(e.target.value))}
               >
@@ -541,7 +568,7 @@ export default function ProjectDashboard() {
               </select>
 
               <select
-                className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
                 value={importSetId}
                 onChange={(e) => setImportSetId(Number(e.target.value))}
               >
@@ -553,21 +580,21 @@ export default function ProjectDashboard() {
               </select>
 
               <input
-                className="border border-slate-200 rounded-xl px-3 py-2 bg-white"
+                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
                 type="file"
                 accept=".zip,.json"
                 onChange={(e) => setImportFile(e.target.files?.[0] || null)}
               />
 
               <button
-                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
                 onClick={importYolo}
               >
                 import yolo zip
               </button>
 
               <button
-                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
+                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
                 onClick={importCoco}
               >
                 import coco json

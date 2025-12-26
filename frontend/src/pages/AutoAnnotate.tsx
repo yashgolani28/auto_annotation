@@ -1,6 +1,6 @@
 // frontend/src/pages/AutoAnnotate.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, Link } from "react-router-dom"
 import { api, wsJobUrl } from "../api"
 import { useToast } from "../components/Toast"
 
@@ -178,40 +178,46 @@ export default function AutoAnnotate() {
           <div className="text-2xl font-semibold">auto annotate</div>
           <div className="text-sm text-zinc-500 mt-1">map model classes to project labels, run async job, watch live progress</div>
         </div>
+        <Link
+          to={`/project/${projectId}/view-auto`}
+          className="bg-blue-600 text-white rounded-lg px-4 py-2 font-medium hover:bg-blue-700 transition-colors"
+        >
+          View Auto Annotations
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-6">
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="font-semibold">inputs</div>
+        <div className="bg-white/80 border border-blue-200 rounded-2xl p-4 shadow-sm">
+          <div className="font-semibold text-slate-900">inputs</div>
 
           <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-zinc-500">dataset</div>
-              <select className="mt-1 w-full border rounded-lg px-3 py-2" value={datasetId} onChange={(e)=>setDatasetId(Number(e.target.value))}>
+              <div className="text-xs text-blue-600 mb-1">dataset</div>
+              <select className="mt-1 w-full border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300" value={datasetId} onChange={(e)=>setDatasetId(Number(e.target.value))}>
                 {datasets.map(d => <option key={d.id} value={d.id}>dataset {d.id}: {d.name}</option>)}
               </select>
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500">model</div>
-              <select className="mt-1 w-full border rounded-lg px-3 py-2" value={modelId} onChange={(e)=>setModelId(Number(e.target.value))}>
+              <div className="text-xs text-blue-600 mb-1">model</div>
+              <select className="mt-1 w-full border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300" value={modelId} onChange={(e)=>setModelId(Number(e.target.value))}>
                 {models.map(m => <option key={m.id} value={m.id}>model {m.id}: {m.name}</option>)}
               </select>
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500">conf</div>
-              <input className="mt-1 w-full border rounded-lg px-3 py-2" type="number" step="0.01" value={conf} onChange={(e)=>setConf(Number(e.target.value))} />
+              <div className="text-xs text-blue-600 mb-1">conf</div>
+              <input className="mt-1 w-full border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300" type="number" step="0.01" value={conf} onChange={(e)=>setConf(Number(e.target.value))} />
             </div>
 
             <div>
-              <div className="text-xs text-zinc-500">iou</div>
-              <input className="mt-1 w-full border rounded-lg px-3 py-2" type="number" step="0.01" value={iou} onChange={(e)=>setIou(Number(e.target.value))} />
+              <div className="text-xs text-blue-600 mb-1">iou</div>
+              <input className="mt-1 w-full border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300" type="number" step="0.01" value={iou} onChange={(e)=>setIou(Number(e.target.value))} />
             </div>
           </div>
 
           <button
-            className="mt-4 bg-zinc-900 text-white rounded-lg px-4 py-2 font-medium hover:bg-zinc-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-4 bg-blue-600 text-white rounded-lg px-4 py-2 font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             onClick={start}
             disabled={loading || !datasetId || !modelId || job?.status === "running"}
           >
@@ -219,48 +225,48 @@ export default function AutoAnnotate() {
           </button>
 
           {job && (
-            <div className="mt-4 border rounded-xl p-3">
+            <div className="mt-4 border border-blue-200 rounded-xl p-3 bg-white">
               <div className="flex items-center justify-between">
-                <div className="font-medium">job #{job.id}</div>
+                <div className="font-medium text-slate-900">job #{job.id}</div>
                 <div className={`text-xs px-2 py-1 rounded-full ${
                   job.status === "success" ? "bg-green-100 text-green-700"
                   : job.status === "failed" ? "bg-red-100 text-red-700"
-                  : "bg-zinc-100 text-zinc-700"
+                  : "bg-blue-100 text-blue-700"
                 }`}>
                   {job.status}
                 </div>
               </div>
-              <div className="text-xs text-zinc-500 mt-2">{job.message || "—"}</div>
+              <div className="text-xs text-blue-600 mt-2">{job.message || "—"}</div>
               <div className="mt-2">
-                <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                  <div className="h-2 bg-zinc-900" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
+                <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-blue-600 transition-all" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
                 </div>
-                <div className="text-xs text-zinc-500 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
+                <div className="text-xs text-blue-600 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
               </div>
             </div>
           )}
         </div>
 
-        <div className="bg-white border rounded-2xl p-4">
-          <div className="font-semibold">class mapping</div>
-          <div className="text-xs text-zinc-500 mt-1">only mapped classes will be saved. unmapped predictions are ignored.</div>
+        <div className="bg-white/80 border border-blue-200 rounded-2xl p-4 shadow-sm">
+          <div className="font-semibold text-slate-900">class mapping</div>
+          <div className="text-xs text-blue-600 mt-1">only mapped classes will be saved. unmapped predictions are ignored.</div>
 
           <div className="mt-3 grid gap-2 max-h-[520px] overflow-auto pr-1">
             {modelClassNames.length === 0 && (
-              <div className="text-sm text-zinc-500">selected model has no readable class_names (or it’s not a .pt ultralytics model)</div>
+              <div className="text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-xl p-3">selected model has no readable class_names (or it's not a .pt ultralytics model)</div>
             )}
 
             {modelClassNames.map((mc) => (
-              <div key={mc.idx} className="border rounded-xl p-3 flex items-center justify-between gap-3">
+              <div key={mc.idx} className="border border-blue-200 rounded-xl p-3 bg-white flex items-center justify-between gap-3 hover:bg-blue-50/50 transition-colors">
                 <div>
-                  <div className="font-medium">{mc.name}</div>
-                  <div className="text-xs text-zinc-500">model class {mc.idx}</div>
+                  <div className="font-medium text-slate-900">{mc.name}</div>
+                  <div className="text-xs text-blue-600">model class {mc.idx}</div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="text-xs text-zinc-500">→</div>
+                  <div className="text-xs text-blue-500">→</div>
                   <select
-                    className="border rounded-lg px-3 py-2"
+                    className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
                     value={mapping[mc.name] || ""}
                     onChange={(e)=>setMap(mc.name, e.target.value)}
                   >
@@ -276,7 +282,7 @@ export default function AutoAnnotate() {
             ))}
           </div>
 
-          <div className="mt-4 text-xs text-zinc-500">
+          <div className="mt-4 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg p-2">
             tip: keep project class names consistent with your model labels to reduce manual mapping.
           </div>
         </div>

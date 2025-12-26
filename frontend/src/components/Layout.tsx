@@ -42,18 +42,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* top header */}
       <div className="sticky top-0 z-50 border-b border-blue-100/70 bg-white/70 backdrop-blur">
         <div className="max-w-7xl mx-auto px-5 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-11 h-11 rounded-2xl bg-white border border-blue-100 shadow-sm flex items-center justify-center overflow-hidden">
+          <Link to="/" className="flex items-center gap-3 min-w-0 hover:opacity-80 transition-opacity">
+            <div className="w-12 h-12 rounded-xl bg-white border-2 border-blue-200 shadow-md flex items-center justify-center overflow-hidden shrink-0">
               <img
                 src="/essi_logo.jpeg"
-                alt="essi"
-                className="w-full h-full object-contain p-1"
+                alt="ESSI Logo"
+                className="w-full h-full object-contain p-1.5"
                 onError={(e) => {
                   ;(e.currentTarget as HTMLImageElement).style.display = "none"
                 }}
               />
               {/* fallback if img fails */}
-              <div className="w-full h-full flex items-center justify-center text-blue-700 font-bold">
+              <div className="w-full h-full flex items-center justify-center text-blue-600 font-bold text-lg">
                 E
               </div>
             </div>
@@ -66,7 +66,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 dataset labeling • review • exports
               </div>
             </div>
-          </div>
+          </Link>
 
           <div className="flex items-center gap-2">
             <NavItem to="/" label="projects" />

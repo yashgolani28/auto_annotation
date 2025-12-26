@@ -7,8 +7,8 @@ import shutil
 import random
 
 from app.db.session import get_db
-from app.models.models import Project, Dataset, DatasetItem, User
-from app.schemas.schemas import DatasetCreate, DatasetOut, DatasetItemOut
+from app.models.models import Project, Dataset, DatasetItem, Annotation, AnnotationSet, User
+from app.schemas.schemas import DatasetCreate, DatasetOut, DatasetItemOut, AnnotationOut
 from app.services.storage import ensure_dirs, dataset_dir, sha256_file, image_size
 from app.core.config import settings
 from app.core.deps import get_current_user, require_project_access, require_project_role
@@ -134,3 +134,46 @@ def random_split(dataset_id: int, payload: dict, db: Session = Depends(get_db), 
         db.add(it)
     db.commit()
     return {"status": "ok", "count": n}
+
+@router.get("/datasets/{dataset_id}/items-with-annotations")
+def get_items_with_annotations(
+    dataset_id: int,
+    annotation_set_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    limit: int = 500,
+    offset: int = 0
+):
+    """Get dataset items that have annotations in a specific annotation set"""
+    d = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not d:
+        raise HTTPException(status_code=404, detail="dataset not found")
+    require_project_access(d.project_id, db, user)
+
+    aset = db.query(AnnotationSet).filter(AnnotationSet.id == annotation_set_id, AnnotationSet.project_id == d.project_id).first()
+    if not aset:
+        raise HTTPException(status_code=404, detail="annotation set not found")
+
+    # Get items that have annotations in this set
+    items_with_anns = db.query(DatasetItem).join(
+        Annotation,
+        Annotation.dataset_item_id == DatasetItem.id
+    ).filter(
+        DatasetItem.dataset_id == dataset_id,
+        Annotation.annotation_set_id == annotation_set_id
+    ).distinct().order_by(DatasetItem.id.asc()).offset(offset).limit(min(limit, 500)).all()
+
+    # Load annotations for each item
+    result = []
+    for item in items_with_anns:
+        anns = db.query(Annotation).filter(
+            Annotation.dataset_item_id == item.id,
+            Annotation.annotation_set_id == annotation_set_id
+        ).all()
+        result.append({
+            "item": DatasetItemOut.model_validate(item).model_dump(),
+            "annotations": [AnnotationOut.model_validate(a).model_dump() for a in anns],
+            "annotation_count": len(anns)
+        })
+
+    return result

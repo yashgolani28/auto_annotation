@@ -1,8 +1,20 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import List, Dict, Any
+import os
+
+# Ensure OpenCV runs in headless mode before importing Ultralytics
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+os.environ["DISPLAY"] = ":99"
 
 def load_ultralytics_model(weights_path: Path):
+    # Import cv2 first to ensure headless mode
+    try:
+        import cv2
+        cv2.setNumThreads(0)  # Disable threading to avoid issues
+    except ImportError:
+        pass
+    
     from ultralytics import YOLO
     return YOLO(str(weights_path))
 

@@ -83,9 +83,9 @@ export default function ExportPage() {
       <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-6 shadow-sm">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div>
-            <label className="text-xs text-slate-600 mb-1 block">dataset</label>
+            <label className="text-xs text-blue-600 mb-1 block font-medium">dataset</label>
             <select
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={datasetId}
               onChange={(e) => setDatasetId(Number(e.target.value))}
             >
@@ -98,9 +98,9 @@ export default function ExportPage() {
           </div>
 
           <div>
-            <label className="text-xs text-slate-600 mb-1 block">annotation set</label>
+            <label className="text-xs text-blue-600 mb-1 block font-medium">annotation set</label>
             <select
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={setId}
               onChange={(e) => setSetId(Number(e.target.value))}
             >
@@ -141,8 +141,8 @@ export default function ExportPage() {
               "rounded-xl px-6 py-2.5 font-medium transition-colors",
               "text-white",
               exporting || !datasetId || !setId
-                ? "bg-slate-300 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
+                ? "bg-blue-300 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 shadow-sm"
             )}
             onClick={() => doExport("yolo")}
             disabled={exporting || !datasetId || !setId}
@@ -155,8 +155,8 @@ export default function ExportPage() {
               "rounded-xl px-6 py-2.5 font-medium transition-colors",
               "text-white",
               exporting || !datasetId || !setId
-                ? "bg-slate-300 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
+                ? "bg-blue-300 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700 shadow-sm"
             )}
             onClick={() => doExport("coco")}
             disabled={exporting || !datasetId || !setId}

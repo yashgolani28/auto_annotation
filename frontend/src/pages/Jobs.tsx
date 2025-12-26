@@ -45,7 +45,7 @@ export default function Jobs() {
           </div>
         </div>
         <button
-          className="px-3 py-1.5 rounded-lg border text-sm"
+          className="px-3 py-1.5 rounded-lg border border-blue-200 bg-white hover:bg-blue-50 text-blue-700 text-sm transition-colors"
           onClick={refresh}
           disabled={loading}
         >
@@ -54,57 +54,57 @@ export default function Jobs() {
       </div>
 
       {loading && jobs.length === 0 ? (
-        <div className="text-sm text-zinc-500">loading jobs…</div>
+        <div className="text-sm text-blue-600">loading jobs…</div>
       ) : jobs.length === 0 ? (
-        <div className="text-sm text-zinc-500">no jobs yet for this project.</div>
+        <div className="text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-xl p-4">no jobs yet for this project.</div>
       ) : (
-        <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="bg-white/80 border border-blue-200 rounded-2xl overflow-hidden shadow-sm">
           <table className="min-w-full text-sm">
-            <thead className="bg-zinc-50 border-b">
+            <thead className="bg-blue-50 border-b border-blue-200">
               <tr>
-                <th className="text-left px-4 py-2">id</th>
-                <th className="text-left px-4 py-2">type</th>
-                <th className="text-left px-4 py-2">status</th>
-                <th className="text-left px-4 py-2">progress</th>
-                <th className="text-left px-4 py-2">message</th>
-                <th className="text-left px-4 py-2">started</th>
-                <th className="text-left px-4 py-2">actions</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">id</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">type</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">status</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">progress</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">message</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">started</th>
+                <th className="text-left px-4 py-3 text-slate-900 font-semibold">actions</th>
               </tr>
             </thead>
             <tbody>
               {jobs.map((j) => (
-                <tr key={j.id} className="border-b last:border-b-0">
-                  <td className="px-4 py-2 font-mono text-xs">#{j.id}</td>
-                  <td className="px-4 py-2">{j.job_type}</td>
-                  <td className="px-4 py-2">
+                <tr key={j.id} className="border-b border-blue-100 last:border-b-0 hover:bg-blue-50/50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs text-slate-700">#{j.id}</td>
+                  <td className="px-4 py-3 text-slate-900">{j.job_type}</td>
+                  <td className="px-4 py-3">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs ${
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                         j.status === "success"
                           ? "bg-green-100 text-green-700"
                           : j.status === "failed"
                           ? "bg-red-100 text-red-700"
-                          : "bg-zinc-100 text-zinc-700"
+                          : "bg-blue-100 text-blue-700"
                       }`}
                     >
                       {j.status}
                     </span>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3 text-blue-700 font-medium">
                     {Math.round((j.progress || 0) * 100)}%
                   </td>
-                  <td className="px-4 py-2 max-w-xs truncate" title={j.message}>
+                  <td className="px-4 py-3 max-w-xs truncate text-slate-700" title={j.message}>
                     {j.message}
                   </td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">
+                  <td className="px-4 py-3 text-xs text-blue-600">
                     {new Date(j.created_at).toLocaleString()}
                   </td>
-                  <td className="px-4 py-2 text-xs">
+                  <td className="px-4 py-3 text-xs">
                     {j.job_type === "auto_annotate" && (
                       <Link
-                        to={`/project/${projectId}/auto`}
-                        className="text-blue-600 hover:underline"
+                        to={`/project/${projectId}/view-auto`}
+                        className="text-blue-600 hover:text-blue-700 hover:underline font-medium"
                       >
-                        view auto page
+                        view results
                       </Link>
                     )}
                   </td>

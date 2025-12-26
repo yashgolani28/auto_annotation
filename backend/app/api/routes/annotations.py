@@ -74,6 +74,7 @@ def get_annotations(item_id: int, annotation_set_id: int | None = None, db: Sess
         Annotation.annotation_set_id == annotation_set_id
     ).all()
 
+
 @router.put("/items/{item_id}/annotations", response_model=list[AnnotationOut])
 def replace_annotations(item_id: int, payload: list[AnnotationIn], annotation_set_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     item = _require_item_access(item_id, db, user)
