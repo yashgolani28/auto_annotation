@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { api } from "../api"
+import { useToast } from "../components/Toast"
 
 type Job = {
   id: number
@@ -13,9 +14,15 @@ type Job = {
   updated_at: string
 }
 
+function cx(...xs: Array<string | false | undefined | null>) {
+  return xs.filter(Boolean).join(" ")
+}
+
 export default function Jobs() {
   const { id } = useParams()
   const projectId = Number(id)
+  const { showToast } = useToast()
+
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -24,7 +31,9 @@ export default function Jobs() {
     setLoading(true)
     try {
       const r = await api.get(`/api/projects/${projectId}/jobs`)
-      setJobs(r.data)
+      setJobs(r.data || [])
+    } catch (e: any) {
+      showToast(e?.response?.data?.detail || "failed to load jobs", "error")
     } finally {
       setLoading(false)
     }
@@ -39,28 +48,29 @@ export default function Jobs() {
     <div className="max-w-6xl">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <div className="text-2xl font-semibold">jobs</div>
-          <div className="text-sm text-zinc-500 mt-1">
-            async tasks for this project • auto annotation runs and exports
-          </div>
+          <div className="text-2xl font-semibold text-slate-900">jobs</div>
+          <div className="text-sm text-slate-500 mt-1">async tasks for this project • auto runs, exports, training</div>
         </div>
         <button
-          className="px-3 py-1.5 rounded-lg border border-blue-200 bg-white hover:bg-blue-50 text-blue-700 text-sm transition-colors"
+          className={cx(
+            "px-4 py-2 rounded-xl border text-sm font-medium transition-colors",
+            loading ? "bg-blue-100 text-blue-500 border-blue-200 cursor-not-allowed" : "bg-white hover:bg-blue-50 border-blue-200 text-blue-700"
+          )}
           onClick={refresh}
           disabled={loading}
         >
-          refresh
+          {loading ? "loading..." : "refresh"}
         </button>
       </div>
 
       {loading && jobs.length === 0 ? (
-        <div className="text-sm text-blue-600">loading jobs…</div>
+        <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">loading jobs…</div>
       ) : jobs.length === 0 ? (
-        <div className="text-sm text-blue-600 bg-blue-50 border border-blue-200 rounded-xl p-4">no jobs yet for this project.</div>
+        <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">no jobs yet for this project.</div>
       ) : (
-        <div className="bg-white/80 border border-blue-200 rounded-2xl overflow-hidden shadow-sm">
+        <div className="bg-white/80 border border-blue-100/70 rounded-3xl overflow-hidden shadow-sm">
           <table className="min-w-full text-sm">
-            <thead className="bg-blue-50 border-b border-blue-200">
+            <thead className="bg-blue-50 border-b border-blue-100">
               <tr>
                 <th className="text-left px-4 py-3 text-slate-900 font-semibold">id</th>
                 <th className="text-left px-4 py-3 text-slate-900 font-semibold">type</th>
@@ -73,37 +83,31 @@ export default function Jobs() {
             </thead>
             <tbody>
               {jobs.map((j) => (
-                <tr key={j.id} className="border-b border-blue-100 last:border-b-0 hover:bg-blue-50/50 transition-colors">
+                <tr key={j.id} className="border-b border-blue-50 last:border-b-0 hover:bg-blue-50/50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-slate-700">#{j.id}</td>
                   <td className="px-4 py-3 text-slate-900">{j.job_type}</td>
                   <td className="px-4 py-3">
                     <span
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      className={cx(
+                        "px-2 py-0.5 rounded-full text-xs font-medium",
                         j.status === "success"
-                          ? "bg-green-100 text-green-700"
+                          ? "bg-emerald-100 text-emerald-700"
                           : j.status === "failed"
                           ? "bg-red-100 text-red-700"
                           : "bg-blue-100 text-blue-700"
-                      }`}
+                      )}
                     >
                       {j.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-blue-700 font-medium">
-                    {Math.round((j.progress || 0) * 100)}%
-                  </td>
+                  <td className="px-4 py-3 text-blue-700 font-medium">{Math.round((j.progress || 0) * 100)}%</td>
                   <td className="px-4 py-3 max-w-xs truncate text-slate-700" title={j.message}>
                     {j.message}
                   </td>
-                  <td className="px-4 py-3 text-xs text-blue-600">
-                    {new Date(j.created_at).toLocaleString()}
-                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-600">{new Date(j.created_at).toLocaleString()}</td>
                   <td className="px-4 py-3 text-xs">
                     {j.job_type === "auto_annotate" && (
-                      <Link
-                        to={`/project/${projectId}/view-auto`}
-                        className="text-blue-600 hover:text-blue-700 hover:underline font-medium"
-                      >
+                      <Link to={`/project/${projectId}/view-auto`} className="text-blue-600 hover:text-blue-700 hover:underline font-medium">
                         view results
                       </Link>
                     )}
@@ -117,5 +121,3 @@ export default function Jobs() {
     </div>
   )
 }
-
-

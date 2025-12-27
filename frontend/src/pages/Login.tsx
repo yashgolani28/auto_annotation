@@ -8,31 +8,20 @@ export default function Login() {
   const [email, setEmail] = useState("admin@local")
   const [password, setPassword] = useState("admin12345")
   const [err, setErr] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault()
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Login.tsx:12',message:'onSubmit entry',data:{email,passwordLength:password?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     setErr(null)
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Login.tsx:16',message:'before login call',data:{email},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
+      setLoading(true)
       await login(email, password)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Login.tsx:17',message:'login success, navigating',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       nav("/")
     } catch (e: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Login.tsx:19',message:'login error in onSubmit',data:{errorMessage:e?.message,status:e?.response?.status,detail:e?.response?.data?.detail,errorString:String(e)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       const errorMsg = e?.response?.data?.detail || "login failed"
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/8e9a2ab2-7083-455e-b920-69a31115af43',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Login.tsx:20',message:'setting error message',data:{errorMsg},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       setErr(errorMsg)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -51,7 +40,7 @@ export default function Login() {
             />
           </div>
           <div>
-            <div className="text-xl font-semibold">sign in</div>
+            <div className="text-xl font-semibold text-slate-900">sign in</div>
             <div className="text-sm text-slate-500">essi auto annotator</div>
           </div>
         </div>
@@ -63,8 +52,10 @@ export default function Login() {
               className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
             />
           </div>
+
           <div>
             <label className="text-xs text-blue-600 font-medium">password</label>
             <input
@@ -72,6 +63,7 @@ export default function Login() {
               className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
             />
           </div>
 
@@ -81,8 +73,11 @@ export default function Login() {
             </div>
           )}
 
-          <button className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-2.5 font-medium transition-colors shadow-sm">
-            login
+          <button
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white rounded-xl py-2.5 font-medium transition-colors shadow-sm"
+          >
+            {loading ? "logging in..." : "login"}
           </button>
         </form>
       </div>

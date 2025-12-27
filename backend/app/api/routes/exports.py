@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 
 from app.db.session import get_db
-from app.models.models import ExportBundle, Dataset, DatasetItem, Annotation, LabelClass, AnnotationSet
+from app.models.models import ExportBundle, Dataset, DatasetItem, Annotation, LabelClass, AnnotationSet, Job
 from app.schemas.schemas import ExportRequest, ExportOut
 from app.services.storage import ensure_dirs, exports_dir
 from app.services.export_formats import yolo_export_bundle, coco_export_bundle
@@ -79,3 +79,74 @@ def download_export(export_id: int, db: Session = Depends(get_db)):
     if not path.exists():
         raise HTTPException(status_code=404, detail="file missing")
     return FileResponse(str(path), filename=path.name, media_type="application/zip")
+
+def _training_artifacts_dir(job_id: int) -> Path:
+    return Path(settings.storage_dir) / "trainings" / f"job_{job_id}" / "artifacts"
+
+@router.get("/jobs/{job_id}/artifacts")
+def list_training_artifacts(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    artifacts = _training_artifacts_dir(job_id)
+    model = artifacts / "model.pt"
+    report_docx = artifacts / "benchmark_report.docx"
+    report_md = artifacts / "benchmark_report.md"
+
+    return {
+        "job_id": job_id,
+        "model": {
+            "available": model.exists(),
+            "rel_path": str(model.relative_to(settings.storage_dir)) if model.exists() else None,
+        },
+        "benchmark_report": {
+            "available": report_docx.exists() or report_md.exists(),
+            "rel_path": str(
+                (report_docx if report_docx.exists() else report_md)
+                .relative_to(settings.storage_dir)
+            ) if (report_docx.exists() or report_md.exists()) else None,
+        },
+    }
+ 
+@router.get("/jobs/{job_id}/artifacts/model")
+def download_trained_model(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    path = _training_artifacts_dir(job_id) / "model.pt"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="model.pt not found")
+
+    return FileResponse(
+        str(path),
+        filename=f"job_{job_id}_model.pt",
+        media_type="application/octet-stream",
+    )
+
+@router.get("/jobs/{job_id}/artifacts/report")
+def download_benchmark_report(job_id: int, db: Session = Depends(get_db)):
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+
+    artifacts = _training_artifacts_dir(job_id)
+    docx = artifacts / "benchmark_report.docx"
+    md = artifacts / "benchmark_report.md"
+
+    if docx.exists():
+        return FileResponse(
+            str(docx),
+            filename=f"job_{job_id}_benchmark_report.docx",
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    if md.exists():
+        return FileResponse(
+            str(md),
+            filename=f"job_{job_id}_benchmark_report.md",
+            media_type="text/markdown",
+        )
+
+    raise HTTPException(status_code=404, detail="benchmark report not found")

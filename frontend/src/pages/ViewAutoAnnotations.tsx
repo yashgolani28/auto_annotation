@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, Link } from "react-router-dom"
 import { api, mediaUrlCandidates } from "../api"
 import { useToast } from "../components/Toast"
+import PageHeader from "../components/PageHeader"
 
 type Dataset = { id: number; name: string }
-
-// NOTE: add dataset_id (many backends include this)
 type ASet = { id: number; name: string; source?: string | null; dataset_id?: number | null }
-
 type LabelClass = { id: number; name: string; color: string; order_index: number }
 type Item = { id: number; file_name: string; width: number; height: number; split: string }
 type Ann = {
@@ -20,11 +18,7 @@ type Ann = {
   confidence?: number | null
   approved: boolean
 }
-
-type ItemWithAnnotations = Item & {
-  annotationCount: number
-  annotations: Ann[]
-}
+type ItemWithAnnotations = Item & { annotationCount: number; annotations: Ann[] }
 
 function _pathFromUrl(u: string) {
   try {
@@ -134,7 +128,11 @@ function AnnotationOverlay({
     <div className="relative">
       <SmartItemImage imgRef={imgRef} itemId={item.id} alt={item.file_name} className="w-full h-auto" />
       {imgSize && (
-        <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }} viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}>
+        <svg
+          className="absolute inset-0 w-full h-full"
+          style={{ pointerEvents: "none" }}
+          viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}
+        >
           {annotations.map((ann, idx) => {
             const cls = classById[ann.class_id]
             return (
@@ -156,7 +154,7 @@ function AnnotationOverlay({
                   fontWeight="bold"
                   style={{ textShadow: "0 1px 2px rgba(255,255,255,0.8)" }}
                 >
-                  {cls?.name || "unknown"}
+                  {cls?.name || "Unknown"}
                   {ann.confidence !== null && ann.confidence !== undefined && <> {(ann.confidence * 100).toFixed(0)}%</>}
                 </text>
               </g>
@@ -196,8 +194,6 @@ export default function ViewAutoAnnotations() {
     }, {} as Record<number, LabelClass>)
   }, [classes])
 
-  // Show only sets relevant for current dataset if dataset_id exists.
-  // If dataset_id is missing, keep it visible (most backends don't populate dataset_id on AnnotationSet).
   const visibleSets = useMemo(() => {
     if (!datasetId) return allSets
     return allSets.filter((s) => !s.dataset_id || s.dataset_id === datasetId)
@@ -211,7 +207,6 @@ export default function ViewAutoAnnotations() {
   }
 
   async function probeHasAnyAnnotations(did: number, asetId: number) {
-    // Limit=1 probe (cheap): if it returns 1+ rows, that pair is valid.
     const res = await api.get(`/api/datasets/${did}/items-with-annotations`, {
       params: { annotation_set_id: asetId, aset: asetId, limit: 1, offset: 0 }
     })
@@ -228,17 +223,15 @@ export default function ViewAutoAnnotations() {
 
     setAutoDetecting(true)
     try {
-      // Prefer "auto-ish" sets first, then everything else
       const setCandidatesRaw = autoLikeSets.length ? autoLikeSets : allSets
       const dsCandidatesRaw = datasets
 
       const setCandidates = reorderById(setCandidatesRaw, prefAset)
       const dsCandidates = reorderById(dsCandidatesRaw, prefDid)
 
-      // Try: (preferred) -> scan until first match
       for (const aset of setCandidates) {
         for (const ds of dsCandidates) {
-          if (autoDetectRunId.current !== runId) return // cancelled by a new run
+          if (autoDetectRunId.current !== runId) return
           try {
             const ok = await probeHasAnyAnnotations(ds.id, aset.id)
             if (ok) {
@@ -246,9 +239,7 @@ export default function ViewAutoAnnotations() {
               setAnnotationSetId(aset.id)
               return
             }
-          } catch {
-            // ignore probe errors, continue
-          }
+          } catch {}
         }
       }
 
@@ -282,24 +273,19 @@ export default function ViewAutoAnnotations() {
       })
       setAutoLikeSets(autoLike)
 
-      // If user already has selections, keep them.
-      // Otherwise pick defaults *robustly* by scanning for a pair that actually has annotations.
       const nextDatasetId = datasetId || (ds[0]?.id ?? 0)
       const nextSetId = annotationSetId || (sets[0]?.id ?? 0)
 
       if (!datasetId && nextDatasetId) setDatasetId(nextDatasetId)
       if (!annotationSetId && nextSetId) setAnnotationSetId(nextSetId)
 
-      // Auto-detect only when we don't have BOTH chosen yet (initial load),
-      // or when defaults are likely wrong.
       if ((!datasetId || !annotationSetId) && ds.length && sets.length) {
-        // prefer autoLike set if available
         const prefSet = (autoLike[0]?.id ?? nextSetId) || 0
         void autoDetectPair({ preferredDatasetId: nextDatasetId, preferredSetId: prefSet })
       }
     } catch (err: any) {
       console.error("refresh() failed:", err)
-      showToast(err?.response?.data?.detail || "Failed to load data", "error")
+      showToast(err?.response?.data?.detail || "Failed to load data.", "error")
     } finally {
       setLoading(false)
     }
@@ -311,7 +297,6 @@ export default function ViewAutoAnnotations() {
       setLoading(true)
 
       const res = await api.get(`/api/datasets/${datasetId}/items-with-annotations`, {
-        // pass both names to be compatible with older/newer backends
         params: { annotation_set_id: annotationSetId, aset: annotationSetId, limit: 500 }
       })
 
@@ -326,7 +311,7 @@ export default function ViewAutoAnnotations() {
       setItems(itemsWithAnns)
     } catch (err: any) {
       console.error("Failed to load items with annotations:", err)
-      showToast(err?.response?.data?.detail || "Failed to load items", "error")
+      showToast(err?.response?.data?.detail || "Failed to load items.", "error")
       setItems([])
     } finally {
       setLoading(false)
@@ -339,7 +324,6 @@ export default function ViewAutoAnnotations() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // If dataset changes, keep annotationSetId valid for that dataset filter (only if backend provides dataset_id on sets).
   useEffect(() => {
     if (!datasetId) return
     if (visibleSets.length === 0) {
@@ -360,120 +344,123 @@ export default function ViewAutoAnnotations() {
   const totalAnnotations = items.reduce((sum, item) => sum + item.annotationCount, 0)
   const classStats = items.reduce((stats: Record<string, number>, item) => {
     item.annotations.forEach((ann) => {
-      const className = classById[ann.class_id]?.name || "unknown"
+      const className = classById[ann.class_id]?.name || "Unknown"
       stats[className] = (stats[className] || 0) + 1
     })
     return stats
   }, {} as Record<string, number>)
 
+  const controls = (
+    <>
+      <select
+        className="border border-blue-200/70 rounded-xl px-3 py-2 bg-white/80 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40"
+        value={datasetId}
+        onChange={(e) => setDatasetId(Number(e.target.value))}
+      >
+        {datasets.map((d) => (
+          <option key={d.id} value={d.id}>
+            Dataset {d.id}: {d.name}
+          </option>
+        ))}
+      </select>
+
+      <select
+        className="border border-blue-200/70 rounded-xl px-3 py-2 bg-white/80 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 disabled:opacity-60 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40"
+        value={annotationSetId}
+        onChange={(e) => setAnnotationSetId(Number(e.target.value))}
+        disabled={visibleSets.length === 0}
+        title={visibleSets.length === 0 ? "No annotation sets available" : ""}
+      >
+        {visibleSets.length === 0 ? (
+          <option value={0}>No annotation set</option>
+        ) : (
+          visibleSets.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name} ({String(s.source || "Unknown")})
+            </option>
+          ))
+        )}
+      </select>
+
+      <button
+        className="border border-blue-200/70 rounded-xl px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors disabled:opacity-50 dark:border-blue-900/60 dark:hover:bg-blue-950/40 dark:text-blue-200"
+        disabled={autoDetecting || datasets.length === 0 || allSets.length === 0}
+        onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
+        title="Scan datasets/sets to find where annotations exist"
+      >
+        {autoDetecting ? "Auto-detecting…" : "Auto-detect"}
+      </button>
+
+      {annotationSetId > 0 && (
+        <Link
+          to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}`}
+          className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium"
+        >
+          Open in editor
+        </Link>
+      )}
+    </>
+  )
+
   return (
     <div className="max-w-7xl">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
-          <div className="text-2xl font-semibold">view auto annotations</div>
-          <div className="text-sm text-zinc-500 mt-1">browse and review auto-annotated images</div>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <select
-            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={datasetId}
-            onChange={(e) => setDatasetId(Number(e.target.value))}
-          >
-            {datasets.map((d) => (
-              <option key={d.id} value={d.id}>
-                dataset {d.id}: {d.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={annotationSetId}
-            onChange={(e) => setAnnotationSetId(Number(e.target.value))}
-            disabled={visibleSets.length === 0}
-            title={visibleSets.length === 0 ? "No annotation sets available" : ""}
-          >
-            {visibleSets.length === 0 ? (
-              <option value={0}>no annotation set</option>
-            ) : (
-              visibleSets.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({String(s.source || "unknown")})
-                </option>
-              ))
-            )}
-          </select>
-
-          <button
-            className="border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors disabled:opacity-50"
-            disabled={autoDetecting || datasets.length === 0 || allSets.length === 0}
-            onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
-            title="Scan datasets/sets to find where annotations exist"
-          >
-            {autoDetecting ? "Auto-detecting..." : "Auto-detect"}
-          </button>
-
-          {annotationSetId > 0 && (
-            <Link
-              to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}`}
-              className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium"
-            >
-              Open in Editor
-            </Link>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title="View auto-annotations"
+        subtitle="Browse and review auto-annotated images."
+        projectId={projectId}
+        right={controls}
+      />
 
       {loading && items.length === 0 ? (
-        <div className="text-center py-12 text-blue-600">Loading...</div>
+        <div className="text-center py-12 text-blue-700 dark:text-blue-200">Loading…</div>
       ) : items.length === 0 ? (
         <div className="text-center py-12">
-          <div className="text-blue-700 mb-2 font-medium">No auto-annotated images found</div>
-          <div className="text-sm text-blue-600">
+          <div className="text-slate-900 dark:text-slate-100 mb-2 font-medium">No auto-annotated images found</div>
+          <div className="text-sm text-slate-600 dark:text-slate-300">
             {annotationSetId === 0
-              ? "Select an annotation set to view images"
-              : "This annotation set has no annotations for the selected dataset"}
+              ? "Select an annotation set to view images."
+              : "This annotation set has no annotations for the selected dataset."}
           </div>
 
           {annotationSetId > 0 && (
             <div className="mt-4">
               <button
-                className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium disabled:opacity-50"
+                className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium disabled:opacity-50"
                 disabled={autoDetecting}
                 onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
               >
-                {autoDetecting ? "Scanning..." : "Try auto-detecting the right dataset/set"}
+                {autoDetecting ? "Scanning…" : "Try auto-detecting the right dataset/set"}
               </button>
             </div>
           )}
         </div>
       ) : (
         <>
-          {/* Statistics */}
-          <div className="bg-white/80 border border-blue-200 rounded-xl p-4 mb-6 shadow-sm">
+          <div className="bg-white/70 border border-blue-100/70 rounded-2xl p-4 mb-6 shadow-sm dark:bg-slate-950/40 dark:border-blue-900/50">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
-                <div className="text-xs text-zinc-500">Images</div>
-                <div className="text-2xl font-semibold">{items.length}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300">Images</div>
+                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{items.length}</div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500">Total Annotations</div>
-                <div className="text-2xl font-semibold">{totalAnnotations}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300">Total annotations</div>
+                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{totalAnnotations}</div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500">Avg per Image</div>
-                <div className="text-2xl font-semibold">{items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300">Avg per image</div>
+                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                  {items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}
+                </div>
               </div>
               <div>
-                <div className="text-xs text-zinc-500">Classes Detected</div>
-                <div className="text-2xl font-semibold">{Object.keys(classStats).length}</div>
+                <div className="text-xs text-slate-500 dark:text-slate-300">Classes detected</div>
+                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{Object.keys(classStats).length}</div>
               </div>
             </div>
 
             {Object.keys(classStats).length > 0 && (
-              <div className="mt-4 pt-4 border-t">
-                <div className="text-xs text-zinc-500 mb-2">Class Distribution</div>
+              <div className="mt-4 pt-4 border-t border-blue-100/70 dark:border-blue-900/50">
+                <div className="text-xs text-slate-500 dark:text-slate-300 mb-2">Class distribution</div>
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(classStats)
                     .sort(([, a], [, b]) => b - a)
@@ -482,10 +469,10 @@ export default function ViewAutoAnnotations() {
                       return (
                         <div
                           key={className}
-                          className="flex items-center gap-2 px-3 py-1 rounded-full text-sm"
+                          className="flex items-center gap-2 px-3 py-1 rounded-full text-sm border border-blue-100/70 dark:border-blue-900/50"
                           style={{
-                            backgroundColor: cls?.color ? `${cls.color}20` : "#f3f4f6",
-                            color: cls?.color || "#374151"
+                            backgroundColor: cls?.color ? `${cls.color}20` : "rgba(59,130,246,0.10)",
+                            color: cls?.color || "inherit"
                           }}
                         >
                           <span className="font-medium">{className}</span>
@@ -498,21 +485,22 @@ export default function ViewAutoAnnotations() {
             )}
           </div>
 
-          {/* Image Gallery */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {items.map((item) => (
               <div
                 key={item.id}
-                className="bg-white/80 border border-blue-200 rounded-xl overflow-hidden hover:shadow-lg hover:border-blue-300 transition-all cursor-pointer"
+                className="bg-white/70 border border-blue-100/70 rounded-2xl overflow-hidden hover:shadow-lg hover:border-blue-300 transition-all cursor-pointer dark:bg-slate-950/40 dark:border-blue-900/50"
                 onClick={() => setSelectedItem(item)}
               >
-                <div className="relative aspect-square bg-blue-50">
+                <div className="relative aspect-square bg-blue-50 dark:bg-blue-950/40">
                   <SmartItemImage itemId={item.id} alt={item.file_name} className="w-full h-full object-contain" loading="lazy" />
-                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">{item.annotationCount}</div>
+                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                    {item.annotationCount}
+                  </div>
                 </div>
                 <div className="p-3">
-                  <div className="text-sm font-medium truncate text-slate-900">{item.file_name}</div>
-                  <div className="text-xs text-blue-600 mt-1">
+                  <div className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{item.file_name}</div>
+                  <div className="text-xs text-blue-700 dark:text-blue-200 mt-1">
                     {item.width} × {item.height}
                   </div>
                   <div className="flex flex-wrap gap-1 mt-2">
@@ -521,20 +509,20 @@ export default function ViewAutoAnnotations() {
                       return (
                         <span
                           key={idx}
-                          className="text-xs px-2 py-0.5 rounded"
+                          className="text-xs px-2 py-0.5 rounded border border-blue-100/70 dark:border-blue-900/50"
                           style={{
-                            backgroundColor: cls?.color ? `${cls.color}20` : "#f3f4f6",
-                            color: cls?.color || "#374151"
+                            backgroundColor: cls?.color ? `${cls.color}20` : "rgba(59,130,246,0.10)",
+                            color: cls?.color || "inherit"
                           }}
                         >
-                          {cls?.name || "unknown"}
+                          {cls?.name || "Unknown"}
                           {ann.confidence !== null && ann.confidence !== undefined && (
                             <span className="ml-1 opacity-70">{(ann.confidence * 100).toFixed(0)}%</span>
                           )}
                         </span>
                       )
                     })}
-                    {item.annotations.length > 3 && <span className="text-xs text-blue-500">+{item.annotations.length - 3}</span>}
+                    {item.annotations.length > 3 && <span className="text-xs text-blue-600 dark:text-blue-200">+{item.annotations.length - 3}</span>}
                   </div>
                 </div>
               </div>
@@ -543,58 +531,67 @@ export default function ViewAutoAnnotations() {
         </>
       )}
 
-      {/* Image Detail Modal */}
       {selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setSelectedItem(null)}
+        >
           <div
-            className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-200"
+            className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-100/70 dark:bg-slate-950 dark:border-blue-900/50"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="sticky top-0 bg-white border-b border-blue-200 p-4 flex items-center justify-between">
+            <div className="sticky top-0 bg-white border-b border-blue-100/70 p-4 flex items-center justify-between dark:bg-slate-950 dark:border-blue-900/50">
               <div>
-                <div className="font-semibold text-slate-900">{selectedItem.file_name}</div>
-                <div className="text-sm text-blue-600">
+                <div className="font-semibold text-slate-900 dark:text-slate-100">{selectedItem.file_name}</div>
+                <div className="text-sm text-blue-700 dark:text-blue-200">
                   {selectedItem.width} × {selectedItem.height} • {selectedItem.annotationCount} annotations
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Link
                   to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}&item=${selectedItem.id}`}
-                  className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium"
+                  className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm font-medium"
                 >
-                  Edit in Editor
+                  Edit in editor
                 </Link>
-                <button onClick={() => setSelectedItem(null)} className="border border-blue-200 rounded-lg px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors">
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="border border-blue-200/70 rounded-xl px-4 py-2 hover:bg-blue-50 text-blue-700 transition-colors dark:border-blue-900/60 dark:hover:bg-blue-950/40 dark:text-blue-200"
+                >
                   Close
                 </button>
               </div>
             </div>
 
             <div className="p-4">
-              <div className="relative bg-blue-50 rounded-lg overflow-hidden mb-4 border border-blue-200">
+              <div className="relative bg-blue-50 dark:bg-blue-950/40 rounded-xl overflow-hidden mb-4 border border-blue-100/70 dark:border-blue-900/50">
                 <AnnotationOverlay item={selectedItem} annotations={selectedItem.annotations} classById={classById} />
               </div>
 
               <div className="space-y-2">
-                <div className="font-semibold mb-2 text-slate-900">Annotations ({selectedItem.annotations.length})</div>
+                <div className="font-semibold mb-2 text-slate-900 dark:text-slate-100">
+                  Annotations ({selectedItem.annotations.length})
+                </div>
                 {selectedItem.annotations.map((ann, idx) => {
                   const cls = classById[ann.class_id]
                   return (
                     <div
                       key={idx}
-                      className="border border-blue-200 rounded-lg p-3 bg-white flex items-center justify-between hover:bg-blue-50/50 transition-colors"
+                      className="border border-blue-100/70 rounded-xl p-3 bg-white/70 flex items-center justify-between hover:bg-blue-50/40 transition-colors dark:bg-slate-950/30 dark:border-blue-900/50"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 rounded border border-blue-300" style={{ backgroundColor: cls?.color || "#3b82f6" }} />
+                        <div className="w-4 h-4 rounded border border-blue-200/70 dark:border-blue-900/60" style={{ backgroundColor: cls?.color || "#3b82f6" }} />
                         <div>
-                          <div className="font-medium text-slate-900">{cls?.name || "unknown"}</div>
-                          <div className="text-xs text-blue-600">
+                          <div className="font-medium text-slate-900 dark:text-slate-100">{cls?.name || "Unknown"}</div>
+                          <div className="text-xs text-blue-700 dark:text-blue-200">
                             Box: ({ann.x.toFixed(0)}, {ann.y.toFixed(0)}) {ann.w.toFixed(0)}×{ann.h.toFixed(0)}
                           </div>
                         </div>
                       </div>
                       {ann.confidence !== null && ann.confidence !== undefined && (
-                        <div className="text-sm text-blue-700 font-medium">{(ann.confidence * 100).toFixed(1)}% confidence</div>
+                        <div className="text-sm text-blue-800 dark:text-blue-200 font-medium">
+                          {(ann.confidence * 100).toFixed(1)}% confidence
+                        </div>
                       )}
                     </div>
                   )

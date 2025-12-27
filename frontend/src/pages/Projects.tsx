@@ -21,7 +21,7 @@ export default function Projects() {
   async function refresh() {
     try {
       const r = await api.get("/api/projects")
-      setProjects(r.data)
+      setProjects(r.data || [])
     } catch (e: any) {
       showToast(e?.response?.data?.detail || "failed to load projects", "error")
     }
@@ -69,9 +69,7 @@ export default function Projects() {
           <button
             className={cx(
               "rounded-xl px-4 py-2 font-medium transition-colors",
-              canCreate
-                ? "bg-blue-600 text-white hover:bg-blue-700"
-                : "bg-blue-100 text-blue-400 cursor-not-allowed"
+              canCreate ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-100 text-blue-400 cursor-not-allowed"
             )}
             onClick={create}
             disabled={!canCreate}
@@ -91,10 +89,7 @@ export default function Projects() {
               "hover:shadow-md hover:border-blue-200/80 transition"
             )}
           >
-            <Link
-              to={`/project/${p.id}`}
-              className="block"
-            >
+            <Link to={`/project/${p.id}`} className="block">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="text-lg font-semibold text-slate-900 truncate">{p.name}</div>
@@ -107,25 +102,18 @@ export default function Projects() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 text-sm">
-                <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                  dashboard
-                </span>
-                <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                  annotate
-                </span>
-                <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                  auto
-                </span>
-                <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                  export
-                </span>
+                {["dashboard", "annotate", "auto", "export"].map((t) => (
+                  <span key={t} className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                    {t}
+                  </span>
+                ))}
               </div>
 
               <div className="mt-4 text-sm text-blue-700 font-medium opacity-0 group-hover:opacity-100 transition">
                 open project →
               </div>
             </Link>
-            
+
             {canDelete && (
               <button
                 className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs"
@@ -136,13 +124,13 @@ export default function Projects() {
                   if (!ok) return
                   try {
                     await api.delete(`/api/projects/${p.id}`)
-                    showToast("Project deleted", "success")
+                    showToast("project deleted", "success")
                     refresh()
                   } catch (err: any) {
-                    showToast(err?.response?.data?.detail || "Failed to delete project", "error")
+                    showToast(err?.response?.data?.detail || "failed to delete project", "error")
                   }
                 }}
-                title="Delete project"
+                title="delete project"
               >
                 🗑️
               </button>

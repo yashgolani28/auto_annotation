@@ -1,4 +1,3 @@
-// frontend/src/pages/Annotate.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useSearchParams } from "react-router-dom"
 import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Line } from "react-konva"
@@ -20,13 +19,13 @@ type Ann = {
   h: number
   confidence?: number | null
   approved: boolean
-  attributes?: {
-    note?: string
-    polygon?: number[]
-  }
+  attributes?: { note?: string; polygon?: number[] }
 }
-
 type LockState = { ok: boolean; expires_at?: string; error?: string }
+
+function cx(...xs: Array<string | false | undefined | null>) {
+  return xs.filter(Boolean).join(" ")
+}
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
@@ -56,7 +55,7 @@ export default function Annotate() {
   const [selectedIdx, setSelectedIdx] = useState<number>(-1)
   const [dirty, setDirty] = useState(false)
 
-  // undo / redo history (per item)
+  // undo / redo history
   type HistoryEntry = { anns: Ann[] }
   const [past, setPast] = useState<HistoryEntry[]>([])
   const [future, setFuture] = useState<HistoryEntry[]>([])
@@ -76,11 +75,10 @@ export default function Annotate() {
   const drawStart = useRef<{ x: number; y: number } | null>(null)
   const [draft, setDraft] = useState<Ann | null>(null)
 
-  // tool palette: pan / box / polygon / select
   type Tool = "pan" | "draw" | "polygon" | "select"
   const [tool, setTool] = useState<Tool>("draw")
 
-  // polygon drawing state
+  // polygon
   const [polyPoints, setPolyPoints] = useState<{ x: number; y: number }[]>([])
   const [polyActive, setPolyActive] = useState(false)
 
@@ -88,7 +86,7 @@ export default function Annotate() {
   const imgUrl = item ? mediaUrl(item.id) : ""
   const [image] = useImage(imgUrl, "anonymous")
 
-  // thumbnail strip
+  // thumbnails strip
   const thumbStart = Math.max(0, index - 8)
   const thumbEnd = Math.min(items.length, index + 9)
   const thumbs = items.slice(thumbStart, thumbEnd)
@@ -112,11 +110,10 @@ export default function Annotate() {
       api.get(`/api/projects/${projectId}/classes`),
       api.get(`/api/projects/${projectId}/annotation-sets`),
     ])
-    setDatasets(d.data)
-    setClasses(c.data)
-    setAnnotationSets(s.data)
+    setDatasets(d.data || [])
+    setClasses(c.data || [])
+    setAnnotationSets(s.data || [])
 
-    // Check URL parameters for direct navigation
     const urlDataset = searchParams.get("dataset")
     const urlAset = searchParams.get("aset")
     const urlItem = searchParams.get("item")
@@ -124,41 +121,34 @@ export default function Annotate() {
     if (!datasetId) {
       if (urlDataset) {
         const dsId = Number(urlDataset)
-        if (d.data.find((ds: Dataset) => ds.id === dsId)) {
-          setDatasetId(dsId)
-        } else if (d.data.length) {
-          setDatasetId(d.data[0].id)
-        }
-      } else if (d.data.length) {
-        setDatasetId(d.data[0].id)
-      }
+        if ((d.data || []).find((ds: Dataset) => ds.id === dsId)) setDatasetId(dsId)
+        else if ((d.data || []).length) setDatasetId(d.data[0].id)
+      } else if ((d.data || []).length) setDatasetId(d.data[0].id)
     }
 
     if (!annotationSetId) {
       if (urlAset) {
         const asetId = Number(urlAset)
-        if (s.data.find((aset: ASet) => aset.id === asetId)) {
-          setAnnotationSetId(asetId)
-        } else if (s.data.length) {
-          setAnnotationSetId(s.data[0].id)
-        }
-      } else if (s.data.length) {
-        setAnnotationSetId(s.data[0].id)
-      }
+        if ((s.data || []).find((aset: ASet) => aset.id === asetId)) setAnnotationSetId(asetId)
+        else if ((s.data || []).length) setAnnotationSetId(s.data[0].id)
+      } else if ((s.data || []).length) setAnnotationSetId(s.data[0].id)
     }
 
-    if (!activeClassId && c.data.length) setActiveClassId(c.data[0].id)
+    if (!activeClassId && (c.data || []).length) setActiveClassId(c.data[0].id)
+
+    // if urlItem exists, loadItems handles jumping
+    if (urlItem) void urlItem
   }
 
   async function loadItems(dsId: number) {
     const r = await api.get(`/api/datasets/${dsId}/items?limit=500&offset=0`)
-    setItems(r.data)
-    
-    // Check if URL has specific item parameter
+    const list: Item[] = r.data || []
+    setItems(list)
+
     const urlItem = searchParams.get("item")
     if (urlItem) {
       const itemId = Number(urlItem)
-      const itemIndex = r.data.findIndex((it: Item) => it.id === itemId)
+      const itemIndex = list.findIndex((it) => it.id === itemId)
       if (itemIndex >= 0) {
         setIndex(itemIndex)
         return
@@ -169,7 +159,7 @@ export default function Annotate() {
 
   async function loadAnnotations(itemId: number, asetId: number) {
     const r = await api.get(`/api/items/${itemId}/annotations?annotation_set_id=${asetId}`)
-    setAnns(r.data)
+    setAnns(r.data || [])
     setSelectedIdx(-1)
     setDirty(false)
     setPast([])
@@ -187,7 +177,6 @@ export default function Annotate() {
 
   function startLockLeaseRefresh(itemId: number, asetId: number) {
     stopLockLeaseRefresh()
-    // refresh every 60s
     lockTimerRef.current = window.setInterval(() => {
       acquireLock(itemId, asetId)
     }, 60_000) as any
@@ -200,7 +189,6 @@ export default function Annotate() {
     }
   }
 
-  // init
   useEffect(() => {
     if (!projectId) return
     loadBase()
@@ -213,27 +201,21 @@ export default function Annotate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId])
 
-  // when item changes: load annotations + lock + viewport reset
   useEffect(() => {
     if (!item || !annotationSetId) return
 
-    // reset viewport to fit image
     fitToScreen()
-
     loadAnnotations(item.id, annotationSetId)
     acquireLock(item.id, annotationSetId)
     startLockLeaseRefresh(item.id, annotationSetId)
 
-    return () => {
-      stopLockLeaseRefresh()
-    }
+    return () => stopLockLeaseRefresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id, annotationSetId])
 
-  // window resize stage
   useEffect(() => {
     function onResize() {
-      const w = window.innerWidth - 64 - 256 // padding minus sidebar
+      const w = window.innerWidth - 64 - 256
       const h = window.innerHeight - 130
       setStageSize({ w: Math.max(900, w), h: Math.max(520, h) })
     }
@@ -259,10 +241,10 @@ export default function Annotate() {
     try {
       await api.put(`/api/items/${item.id}/annotations?annotation_set_id=${annotationSetId}`, anns)
       setDirty(false)
-      await acquireLock(item.id, annotationSetId) // extend lock after save
-      showToast("Annotations saved", "success")
+      await acquireLock(item.id, annotationSetId)
+      showToast("annotations saved", "success")
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || "Save failed", "error")
+      showToast(e?.response?.data?.detail || "save failed", "error")
     }
   }
 
@@ -283,12 +265,12 @@ export default function Annotate() {
   }
 
   function applyChange(mutator: (prev: Ann[]) => Ann[]) {
-    setAnns((prev) => {
-      const next = mutator(prev)
-      setPast((p) => [...p, { anns: prev }])
+    setAnns((prevAnns) => {
+      const nextAnns = mutator(prevAnns)
+      setPast((p) => [...p, { anns: prevAnns }])
       setFuture([])
       setDirty(true)
-      return next
+      return nextAnns
     })
   }
 
@@ -314,7 +296,6 @@ export default function Annotate() {
     })
   }
 
-  // hotkeys
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "s") {
@@ -340,30 +321,20 @@ export default function Annotate() {
           setSelectedIdx(-1)
         }
       }
-      // tool hotkeys
       if (!e.ctrlKey && !e.metaKey) {
-        if (e.key.toLowerCase() === "b") {
-          setTool("draw")
-        }
-        if (e.key.toLowerCase() === "p") {
-          setTool("polygon")
-        }
-        if (e.key.toLowerCase() === "v") {
-          setTool("select")
-        }
+        if (e.key.toLowerCase() === "b") setTool("draw")
+        if (e.key.toLowerCase() === "p") setTool("polygon")
+        if (e.key.toLowerCase() === "v") setTool("select")
         if (e.key === " ") {
           e.preventDefault()
           setTool("pan")
         }
       }
-
-      // class hotkeys 1..9
       if (e.key >= "1" && e.key <= "9") {
         const idx = Number(e.key) - 1
         const c = classes[idx]
         if (c) setActiveClassId(c.id)
       }
-      // nudge selected box with arrows + shift
       if (selectedIdx >= 0) {
         const step = e.shiftKey ? 10 : 1
         let dx = 0,
@@ -398,18 +369,11 @@ export default function Annotate() {
     const stage = stageRef.current
     const oldScale = scale
     const pointer = stage.getPointerPosition()
-    const mousePointTo = {
-      x: (pointer.x - pos.x) / oldScale,
-      y: (pointer.y - pos.y) / oldScale,
-    }
+    const mousePointTo = { x: (pointer.x - pos.x) / oldScale, y: (pointer.y - pos.y) / oldScale }
     const direction = e.evt.deltaY > 0 ? -1 : 1
     const factor = 1.08
     const newScale = clamp(direction > 0 ? oldScale * factor : oldScale / factor, 0.05, 8)
-
-    const newPos = {
-      x: pointer.x - mousePointTo.x * newScale,
-      y: pointer.y - mousePointTo.y * newScale,
-    }
+    const newPos = { x: pointer.x - mousePointTo.x * newScale, y: pointer.y - mousePointTo.y * newScale }
     setScale(newScale)
     setPos(newPos)
   }
@@ -422,14 +386,7 @@ export default function Annotate() {
     const y = normToStageY(p.y)
     drawStart.current = { x, y }
     setDrawing(true)
-    setDraft({
-      class_id: activeClassId,
-      x,
-      y,
-      w: 1,
-      h: 1,
-      approved: false,
-    })
+    setDraft({ class_id: activeClassId, x, y, w: 1, h: 1, approved: false })
   }
 
   function updateDraw(e: any) {
@@ -461,7 +418,7 @@ export default function Annotate() {
       setDraft(null)
       return
     }
-    // clamp
+
     const x = clamp(draft.x, 0, item.width - 1)
     const y = clamp(draft.y, 0, item.height - 1)
     const w = clamp(draft.w, 1, item.width - x)
@@ -496,20 +453,10 @@ export default function Annotate() {
     const w = Math.max(1, maxX - minX)
     const h = Math.max(1, maxY - minY)
     const flattened: number[] = []
-    polyPoints.forEach((p) => {
-      flattened.push(p.x, p.y)
-    })
+    polyPoints.forEach((p) => flattened.push(p.x, p.y))
     applyChange((arr) => [
       ...arr,
-      {
-        class_id: activeClassId,
-        x: minX,
-        y: minY,
-        w,
-        h,
-        approved: false,
-        attributes: { polygon: flattened },
-      },
+      { class_id: activeClassId, x: minX, y: minY, w, h, approved: false, attributes: { polygon: flattened } },
     ])
     setPolyPoints([])
     setPolyActive(false)
@@ -519,7 +466,6 @@ export default function Annotate() {
     applyChange((arr) => arr.map((a, idx) => (idx === i ? { ...a, approved: !a.approved } : a)))
   }
 
-  // dragging boxes
   function onBoxDrag(i: number, e: any) {
     if (!item) return
     const node = e.target
@@ -538,15 +484,15 @@ export default function Annotate() {
     <div className="max-w-[1400px]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-2xl font-semibold">annotate</div>
-          <div className="text-sm text-zinc-500 mt-1">
-            draw boxes, press ctrl+s to save • arrows to navigate • mouse wheel to zoom • drag background to pan
+          <div className="text-2xl font-semibold text-slate-900">annotate</div>
+          <div className="text-sm text-slate-500 mt-1">
+            draw boxes • ctrl+s save • arrows navigate • wheel zoom • space pan
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
           <select
-            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={datasetId}
             onChange={(e) => setDatasetId(Number(e.target.value))}
           >
@@ -558,7 +504,7 @@ export default function Annotate() {
           </select>
 
           <select
-            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={annotationSetId}
             onChange={(e) => setAnnotationSetId(Number(e.target.value))}
           >
@@ -570,7 +516,7 @@ export default function Annotate() {
           </select>
 
           <select
-            className="border border-blue-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
             value={activeClassId}
             onChange={(e) => setActiveClassId(Number(e.target.value))}
           >
@@ -581,19 +527,23 @@ export default function Annotate() {
             ))}
           </select>
 
-          <button className="border border-blue-200 rounded-lg px-3 py-2 bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={fitToScreen}>
+          <button className="border border-blue-200 rounded-xl px-3 py-2 bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={fitToScreen}>
             fit
           </button>
 
-          <button className="bg-blue-600 text-white rounded-lg px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm" onClick={save} disabled={!lock.ok}>
+          <button
+            className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm disabled:bg-blue-300 disabled:cursor-not-allowed"
+            onClick={save}
+            disabled={!lock.ok}
+          >
             save
           </button>
         </div>
       </div>
 
       <div className="mt-3 flex items-center justify-between">
-        <div className={`text-sm ${lock.ok ? "text-green-700" : "text-red-700"}`}>{banner}</div>
-        <div className="text-sm text-zinc-500">
+        <div className={cx("text-sm", lock.ok ? "text-emerald-700" : "text-red-700")}>{banner}</div>
+        <div className="text-sm text-slate-500">
           {item ? (
             <>
               {index + 1} / {items.length} • {item.file_name} • {item.width}×{item.height} •{" "}
@@ -607,70 +557,40 @@ export default function Annotate() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 mt-4">
         {/* canvas */}
-        <div className="bg-slate-950 border border-blue-200/25 rounded-2xl overflow-hidden shadow-lg shadow-blue-950/20">
-        <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200/20">
+        <div className="bg-slate-950 border border-blue-200/25 rounded-3xl overflow-hidden shadow-lg shadow-blue-950/20">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200/20">
             <div className="flex items-center gap-2">
               <div className="text-sm font-medium mr-3 text-slate-50">canvas</div>
+
               <div className="flex items-center gap-1 text-xs">
-                <button
-                  className={`px-2 py-1 rounded-lg border text-xs ${
-                    tool === "draw"
-                      ? "bg-sky-700 text-white border-sky-500"
-                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
-                  }`}
-                  onClick={() => setTool("draw")}
-                  title="draw boxes (B)"
-                >
-                  draw
-                </button>
-                <button
-                  className={`px-2 py-1 rounded-lg border text-xs ${
-                    tool === "polygon"
-                      ? "bg-sky-700 text-white border-sky-500"
-                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
-                  }`}
-                  onClick={() => setTool("polygon")}
-                  title="draw polygon (P)"
-                >
-                  polygon
-                </button>
-                <button
-                  className={`px-2 py-1 rounded-lg border text-xs ${
-                    tool === "pan"
-                      ? "bg-sky-700 text-white border-sky-500"
-                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
-                  }`}
-                  onClick={() => setTool("pan")}
-                  title="pan canvas (Space)"
-                >
-                  pan
-                </button>
-                <button
-                  className={`px-2 py-1 rounded-lg border text-xs ${
-                    tool === "select"
-                      ? "bg-sky-700 text-white border-sky-500"
-                      : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
-                  }`}
-                  onClick={() => setTool("select")}
-                  title="select boxes (V)"
-                >
-                  select
-                </button>
+                {[
+                  ["draw", "draw", "b"],
+                  ["polygon", "polygon", "p"],
+                  ["pan", "pan", "space"],
+                  ["select", "select", "v"],
+                ].map(([key, label, hint]) => (
+                  <button
+                    key={key}
+                    className={cx(
+                      "px-2 py-1 rounded-lg border text-xs transition-colors",
+                      tool === (key as Tool)
+                        ? "bg-sky-700 text-white border-sky-500"
+                        : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
+                    )}
+                    onClick={() => setTool(key as Tool)}
+                    title={`${label} (${hint})`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
+
             <div className="flex items-center gap-3 text-xs text-slate-300">
-              <button
-                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800"
-                onClick={() => undo()}
-                disabled={!past.length}
-              >
+              <button className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50" onClick={undo} disabled={!past.length}>
                 undo
               </button>
-              <button
-                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800"
-                onClick={() => redo()}
-                disabled={!future.length}
-              >
+              <button className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50" onClick={redo} disabled={!future.length}>
                 redo
               </button>
               <span className="opacity-80">scale {scale.toFixed(2)}</span>
@@ -692,11 +612,8 @@ export default function Annotate() {
               onMouseDown={(e) => {
                 const clickedOnEmpty = e.target === e.target.getStage()
                 if (!clickedOnEmpty) return
-                if (tool === "draw") {
-                  startDraw(e)
-                } else if (tool === "polygon") {
-                  addPolygonPoint(e)
-                }
+                if (tool === "draw") startDraw(e)
+                else if (tool === "polygon") addPolygonPoint(e)
               }}
               onMouseMove={(e) => {
                 if (tool === "draw") updateDraw(e)
@@ -707,20 +624,10 @@ export default function Annotate() {
               onDblClick={finishPolygon}
             >
               <Layer>
-                {/* image */}
-                {image && item && (
-                  <KonvaImage
-                    image={image}
-                    x={0}
-                    y={0}
-                    width={item.width}
-                    height={item.height}
-                  />
-                )}
+                {image && item && <KonvaImage image={image} x={0} y={0} width={item.width} height={item.height} />}
               </Layer>
 
               <Layer>
-                {/* draw boxes & polygons */}
                 {anns.map((a, i) => {
                   const cls = classById[a.class_id]
                   const stroke = cls?.color || "#22c55e"
@@ -744,15 +651,7 @@ export default function Annotate() {
                         opacity={a.approved ? 0.35 : 0.25}
                         fill={stroke}
                       />
-                      {hasPolygon && (
-                        <Line
-                          points={polygon as number[]}
-                          stroke={stroke}
-                          strokeWidth={2}
-                          closed
-                          opacity={0.6}
-                        />
-                      )}
+                      {hasPolygon && <Line points={polygon as number[]} stroke={stroke} strokeWidth={2} closed opacity={0.6} />}
                       <Text
                         x={a.x}
                         y={Math.max(0, a.y - 18)}
@@ -764,35 +663,19 @@ export default function Annotate() {
                   )
                 })}
 
-                {/* draft */}
-                {draft && tool === "draw" && (
-                  <Rect
-                    x={draft.x}
-                    y={draft.y}
-                    width={draft.w}
-                    height={draft.h}
-                    stroke={"#0ea5e9"}
-                    strokeWidth={2}
-                    dash={[6, 4]}
-                  />
-                )}
-                {polyActive && polyPoints.length > 1 && (
-                  <Line
-                    points={polyPoints.flatMap((p) => [p.x, p.y])}
-                    stroke="#0ea5e9"
-                    strokeWidth={2}
-                  />
-                )}
+                {draft && tool === "draw" && <Rect x={draft.x} y={draft.y} width={draft.w} height={draft.h} stroke={"#0ea5e9"} strokeWidth={2} dash={[6, 4]} />}
+                {polyActive && polyPoints.length > 1 && <Line points={polyPoints.flatMap((p) => [p.x, p.y])} stroke="#0ea5e9" strokeWidth={2} />}
               </Layer>
             </Stage>
           </div>
 
           {/* thumbnails */}
-          <div className="border-t border-blue-100/70 p-2 bg-white/80">
+          <div className="border-t border-blue-100/40 p-2 bg-white/85">
             <div className="flex items-center gap-2 overflow-x-auto">
-              <button className="border rounded-lg px-3 py-1 text-sm" onClick={prev}>
+              <button className="border border-blue-200 rounded-xl px-3 py-1.5 text-sm bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={prev}>
                 prev
               </button>
+
               {thumbs.map((t, i) => {
                 const realIdx = thumbStart + i
                 const active = realIdx === index
@@ -800,14 +683,18 @@ export default function Annotate() {
                   <button
                     key={t.id}
                     onClick={() => setIndex(realIdx)}
-                    className={`px-3 py-2 rounded-lg text-sm border whitespace-nowrap ${active ? "bg-zinc-900 text-white" : "bg-white"}`}
+                    className={cx(
+                      "px-3 py-2 rounded-xl text-sm border whitespace-nowrap transition-colors",
+                      active ? "bg-blue-600 text-white border-blue-600" : "bg-white border-blue-200 hover:bg-blue-50 text-blue-700"
+                    )}
                     title={t.file_name}
                   >
                     {realIdx + 1}
                   </button>
                 )
               })}
-              <button className="border rounded-lg px-3 py-1 text-sm" onClick={next}>
+
+              <button className="border border-blue-200 rounded-xl px-3 py-1.5 text-sm bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={next}>
                 next
               </button>
             </div>
@@ -815,10 +702,10 @@ export default function Annotate() {
         </div>
 
         {/* right panel */}
-        <div className="bg-white border rounded-2xl p-4 flex flex-col gap-4">
+        <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-4 shadow-sm flex flex-col gap-4">
           <div>
-            <div className="font-semibold">classes</div>
-            <div className="text-xs text-zinc-500 mt-1">click to pick active class • 1..9 hotkeys</div>
+            <div className="font-semibold text-slate-900">classes</div>
+            <div className="text-xs text-slate-500 mt-1">click to pick active class • 1..9 hotkeys</div>
             <div className="mt-3 flex flex-wrap gap-2">
               {classes.map((c, idx) => {
                 const isActive = c.id === activeClassId
@@ -826,30 +713,26 @@ export default function Annotate() {
                   <button
                     key={c.id}
                     onClick={() => setActiveClassId(c.id)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs ${
-                      isActive ? "border-zinc-900 bg-zinc-900 text-white" : "bg-white"
-                    }`}
+                    className={cx(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors",
+                      isActive ? "border-blue-600 bg-blue-600 text-white" : "bg-white border-blue-200 text-blue-700 hover:bg-blue-50"
+                    )}
                     title={`press ${idx + 1} to select`}
                   >
-                    <span
-                      className="w-3 h-3 rounded-full border"
-                      style={{ backgroundColor: c.color }}
-                    />
-                    <span>{idx + 1}. {c.name}</span>
+                    <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: c.color }} />
+                    <span>
+                      {idx + 1}. {c.name}
+                    </span>
                   </button>
                 )
               })}
-              {!classes.length && (
-                <div className="text-xs text-zinc-500">no classes defined. add them in the project dashboard.</div>
-              )}
+              {!classes.length && <div className="text-xs text-slate-500">no classes defined. add them in the project dashboard.</div>}
             </div>
           </div>
 
           <div className="flex-1 min-h-0">
-            <div className="font-semibold">boxes</div>
-            <div className="text-xs text-zinc-500 mt-1">
-              click a row to focus. toggle approved for validation exports. add optional comments.
-            </div>
+            <div className="font-semibold text-slate-900">boxes</div>
+            <div className="text-xs text-slate-500 mt-1">click a row to focus. toggle approved for validation exports.</div>
 
             <div className="mt-3 space-y-2 max-h-[420px] overflow-auto pr-1">
               {anns.map((a, i) => {
@@ -858,19 +741,23 @@ export default function Annotate() {
                 return (
                   <div
                     key={i}
-                    className={`border rounded-xl p-3 cursor-pointer flex flex-col gap-1 ${selected ? "border-zinc-900 bg-zinc-50" : ""}`}
+                    className={cx(
+                      "border rounded-2xl p-3 cursor-pointer flex flex-col gap-1 transition-colors",
+                      selected ? "border-blue-300 bg-blue-50/60" : "border-blue-200 bg-white hover:bg-blue-50/30"
+                    )}
                     onClick={() => setSelectedIdx(i)}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span
-                          className="w-2 h-6 rounded-full"
-                          style={{ backgroundColor: cls?.color || "#22c55e" }}
-                        />
-                        <div className="font-medium">{cls?.name || a.class_id}</div>
+                        <span className="w-2 h-6 rounded-full" style={{ backgroundColor: cls?.color || "#22c55e" }} />
+                        <div className="font-medium text-slate-900">{cls?.name || a.class_id}</div>
                       </div>
+
                       <button
-                        className={`text-xs px-2 py-1 rounded-full ${a.approved ? "bg-green-100 text-green-700" : "bg-zinc-100 text-zinc-700"}`}
+                        className={cx(
+                          "text-xs px-2 py-1 rounded-full border transition-colors",
+                          a.approved ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-blue-50 text-blue-700 border-blue-200"
+                        )}
                         onClick={(e) => {
                           e.stopPropagation()
                           toggleApproved(i)
@@ -879,34 +766,26 @@ export default function Annotate() {
                         {a.approved ? "approved" : "unapproved"}
                       </button>
                     </div>
-                    <div className="text-xs text-zinc-500 mt-1 flex flex-wrap gap-2">
+
+                    <div className="text-xs text-slate-600 mt-1 flex flex-wrap gap-2">
                       <span>x {a.x.toFixed(0)}</span>
                       <span>y {a.y.toFixed(0)}</span>
                       <span>w {a.w.toFixed(0)}</span>
                       <span>h {a.h.toFixed(0)}</span>
-                      {a.confidence != null && (
-                        <span>conf {(a.confidence * 100).toFixed(0)}%</span>
-                      )}
+                      {a.confidence != null && <span>conf {(a.confidence * 100).toFixed(0)}%</span>}
                     </div>
+
                     {selected && (
                       <div className="mt-2">
                         <textarea
-                          className="w-full border rounded-lg px-2 py-1 text-xs"
+                          className="w-full border border-blue-200 rounded-xl px-2 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
                           placeholder="comment / QA note…"
                           value={a.attributes?.note || ""}
                           onChange={(e) => {
                             const value = e.target.value
                             applyChange((arr) =>
                               arr.map((ann, idx) =>
-                                idx === i
-                                  ? {
-                                      ...ann,
-                                      attributes: {
-                                        ...(ann.attributes || {}),
-                                        note: value,
-                                      },
-                                    }
-                                  : ann
+                                idx === i ? { ...ann, attributes: { ...(ann.attributes || {}), note: value } } : ann
                               )
                             )
                           }}
@@ -916,25 +795,30 @@ export default function Annotate() {
                   </div>
                 )
               })}
-              {!anns.length && <div className="text-sm text-zinc-500">no boxes yet. drag on canvas to create one.</div>}
+
+              {!anns.length && (
+                <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
+                  no boxes yet. drag on canvas to create one.
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="mt-2 border-t pt-3 text-xs text-zinc-500">
-            <div>hotkeys</div>
+          <div className="mt-2 border-t border-blue-100/70 pt-3 text-xs text-slate-600">
+            <div className="font-semibold text-slate-900">hotkeys</div>
             <ul className="list-disc ml-4 mt-2 space-y-1">
               <li>ctrl+s save</li>
               <li>left/right switch image</li>
-              <li>b draw tool • v select tool • space pan tool</li>
+              <li>b draw • v select • space pan</li>
               <li>1..9 select class</li>
               <li>del delete selected box</li>
-              <li>w a s d nudge selected box (shift for bigger steps)</li>
+              <li>w a s d nudge selected box (shift bigger)</li>
               <li>mouse wheel zoom</li>
+              <li>double click to finish polygon</li>
             </ul>
           </div>
         </div>
       </div>
-
     </div>
   )
 }

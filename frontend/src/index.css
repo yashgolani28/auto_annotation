@@ -2,4 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
+/* Let the browser style built-in controls appropriately for both themes */
+:root { color-scheme: light dark; }
+html.dark { color-scheme: dark; }

@@ -3,10 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.models import Job, Project
-from app.schemas.schemas import AutoAnnotateRequest, JobOut
-from app.workers.tasks import auto_annotate_task
+from app.schemas.schemas import AutoAnnotateRequest, JobOut, TrainYoloRequest
 from app.core.deps import get_current_user, require_project_access
-from app.models.models import User
+from app.models.models import User, Job
+from datetime import datetime
+from app.workers.celery_app import celery
 
 router = APIRouter()
 
@@ -19,9 +20,28 @@ def start_auto_annotate(project_id: int, req: AutoAnnotateRequest, db: Session =
     db.add(job)
     db.commit()
     db.refresh(job)
-    auto_annotate_task.delay(job.id)
+    celery.send_task("auto_annotate_task", args=[job.id])
     return job
 
+@router.post("/projects/{project_id}/jobs/train-yolo", response_model=JobOut)
+def start_train_yolo(project_id: int, payload: TrainYoloRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    job = Job(
+        project_id=project_id,
+        job_type="train_yolo",
+        status="queued",
+        progress=0.0,
+        message="queued",
+        payload=payload.model_dump(),
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    celery.send_task("train_yolo_task", args=[job.id])
+    return job
+    
 @router.get("/projects/{project_id}/jobs", response_model=list[JobOut])
 def list_project_jobs(project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     require_project_access(project_id, db, user)

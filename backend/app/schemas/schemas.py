@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
+from pydantic import field_validator
 from datetime import datetime
 
 class ProjectCreate(BaseModel):
@@ -94,8 +95,50 @@ class AutoAnnotateRequest(BaseModel):
     conf: float = 0.25
     iou: float = 0.5
     device: str = ""
-    # optional extra parameters, e.g. {"class_mapping": {"model_name": "project_name"}}
     params: Dict[str, Any] = Field(default_factory=dict)
+
+class TrainYoloRequest(BaseModel):
+    dataset_id: int
+    annotation_set_id: int
+    base_model_id: int
+    trained_model_name: str = "trained_model"
+    split_mode: str = "keep"
+    train_ratio: float = 0.8
+    val_ratio: float = 0.1
+    test_ratio: float = 0.1
+    seed: int = 1337
+
+    # training knobs
+    imgsz: int = 640
+    epochs: int = 50
+    batch: int = 16
+    device: str = "0"     
+    workers: int = 4
+    optimizer: str = "SGD"  
+    cos_lr: bool = True
+    patience: int = 20
+    cache: str = "disk"     
+
+    # export / labels behavior
+    approved_only: bool = True  
+
+    # benchmarking
+    bench_split: str = "test"  
+    conf: float = 0.25
+    iou: float = 0.7
+
+    meta: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("trained_model_name")
+    @classmethod
+    def _validate_trained_model_name(cls, v: str):
+        v = (v or "").strip()
+        if not v:
+            return "trained_model"
+
+        if len(v) > 80:
+            v = v[:80].strip()
+        return v
 
 class ExportRequest(BaseModel):
     dataset_id: int

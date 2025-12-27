@@ -1,36 +1,92 @@
 # Auto Annotator
 
-A self-hosted annotation tool for object detection datasets with YOLO auto-annotation, web-based validation, and export to YOLO/COCO formats.
+A self-hosted annotation and training platform for object detection datasets with YOLO auto-annotation, web-based validation, model fine-tuning, and export to YOLO/COCO formats.
 
 ## Overview
 
-Auto Annotator streamlines the creation of object detection datasets by combining automated labeling with manual validation. Upload images, run YOLO inference to generate initial annotations, validate and correct them in a browser-based editor, then export to standard formats.
+Auto Annotator streamlines the full lifecycle of object detection datasets:
+
+* automated labeling using pretrained YOLO models
+* manual validation and correction in a browser-based editor
+* fine-tuning YOLO models on validated annotations
+* exporting datasets and trained models for downstream use
+
+It is designed for **local, GPU-accelerated workflows** and scales well to large datasets using async job processing.
 
 **Key capabilities:**
-- Browser-based bounding box editor with intuitive controls
-- Automated annotation using pretrained YOLO models
-- Export to YOLO or COCO formats
-- Async job processing for large datasets
-- Dockerized deployment with persistent storage
+
+* Browser-based bounding box editor with intuitive controls
+* YOLO-based auto-annotation
+* YOLO fine-tuning (train + benchmark from UI)
+* Export to YOLO or COCO formats
+* Async job processing via Celery
+* GPU acceleration (CUDA / NVIDIA)
+* Fully Dockerized with persistent storage
+
+---
 
 ## Quick Start
 
-**Prerequisites:** Docker Desktop with 16GB+ RAM recommended
+### Prerequisites
+
+* Docker Desktop
+* **NVIDIA GPU (recommended)**
+* **NVIDIA drivers installed on host**
+* **Docker Desktop with GPU support enabled**
+* 16 GB+ RAM recommended
+
+> Tested with RTX 30xx / 40xx series (e.g. RTX 4060 Ti)
+
+---
+
+### Start the stack
 
 ```bash
-# Clone and start
 docker compose up --build
-
-# Access the application
-UI:       http://localhost:5173
-API Docs: http://localhost:8000/docs
 ```
+
+### Access
+
+```
+UI:        http://localhost:5173
+API Docs:  http://localhost:8000/docs
+```
+
+---
+
+## GPU / CUDA Support (Important)
+
+Auto Annotator supports **GPU-accelerated inference and training** inside Docker.
+
+### What’s required
+
+1. NVIDIA GPU + drivers on host
+2. Docker Desktop with GPU support enabled
+3. CUDA-enabled PyTorch inside containers
+
+The provided `docker-compose.yml` and backend `Dockerfile` are already configured for this.
+
+### Verify GPU inside container
+
+```bash
+docker compose exec worker python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu')"
+```
+
+Expected:
+
+```
+True NVIDIA GeForce RTX 4060 Ti
+```
+
+If CUDA is not detected, see **Troubleshooting → GPU issues** below.
+
+---
 
 ## Workflow
 
 ### 1. Create Project & Define Classes
 
-Create a new project and define your object classes:
+Create a project and define detection classes:
 
 ```
 car
@@ -40,199 +96,260 @@ motorbike
 license_plate
 ```
 
+Class order matters — it defines YOLO class indices.
+
+---
+
 ### 2. Upload Dataset
 
-Prepare a zip file containing your images (JPG, PNG, WebP, TIFF, BMP). Nested folders are supported—images are extracted by filename.
+Upload a `.zip` containing images:
+
+* JPG, PNG, WebP, TIFF, BMP supported
+* Nested folders supported
+* Images are indexed and stored persistently
+
+---
 
 ### 3. Upload Model Weights
 
-Upload pretrained YOLO weights (`.pt` format) for auto-annotation.
+Upload pretrained YOLO `.pt` weights:
+
+* Ultralytics YOLO detection models
+* These are used for auto-annotation or as base models for training
+
+---
 
 ### 4. Run Auto-Annotation
 
-Configure and run inference:
-- Select dataset and model
-- Set confidence threshold (recommended: 0.15-0.25)
-- Set IoU threshold
-- Monitor job progress
+Configure inference:
 
-**Class Matching:** Predictions are matched to project classes by name (case-insensitive). Unmatched classes are ignored.
+* Dataset
+* Model
+* Confidence threshold (recommended: `0.15–0.25`)
+* IoU threshold
+* Device (`cpu` or `0` for GPU)
 
-### 5. Validate & Edit
+Jobs run asynchronously via Celery.
 
-Use the annotation editor to refine results:
-- **Click-drag** on empty space to draw boxes
-- **Drag** boxes to reposition
-- **Resize** using corner handles
-- **Delete** selected box with Del/Backspace
-- **Navigate** images with arrow keys
-- **Save** with Ctrl+S
+**Class Matching**
 
-Mark boxes as "approved" to export only validated annotations.
+* Model class names are matched to project classes (case-insensitive)
+* Unmatched predictions are skipped
 
-### 6. Export
+---
 
-Export your dataset in YOLO or COCO format:
-- **YOLO**: Images organized by split, normalized txt labels, data.yaml
-- **COCO**: Images folder with annotations.json
+### 5. Validate & Edit Annotations
 
-Options:
-- Include/exclude images
-- Export approved annotations only
+Use the browser editor:
 
-## Architecture
+* **Click + drag** to draw boxes
+* **Drag** to move boxes
+* **Resize** using handles
+* **Delete** with `Del` / `Backspace`
+* **Navigate** images with arrow keys
+* **Save** with `Ctrl + S`
 
-```
-Frontend:  React + Vite + Konva (canvas-based editing)
-Backend:   FastAPI + SQLAlchemy
-Database:  PostgreSQL
-Queue:     Redis + Celery (async jobs)
-Storage:   Local volume at ./data
-```
+Only **approved** annotations are used for training or export (optional).
 
-## Export Formats
+---
 
-### YOLO Format
+### 6. Train YOLO (Fine-tuning)
+
+Train a new YOLO model directly from validated annotations.
+
+**From the UI:**
+
+* Select dataset
+* Select annotation set
+* Select base model
+* Configure:
+
+  * image size
+  * epochs
+  * batch size
+  * optimizer
+  * device (`cpu` or `0`)
+* Start training job
+
+**What happens:**
+
+* Dataset is exported from DB → YOLO format
+* Model is fine-tuned
+* Validation + YOLO benchmark is run
+* Trained `.pt` is stored and registered as a new model
+
+Training jobs support:
+
+* GPU acceleration
+* Automatic batch-size fallback on OOM
+* Progress + logs in UI
+
+---
+
+### 7. Export
+
+Export datasets:
+
+**YOLO**
 
 ```
 dataset/
-├── images/
-│   ├── train/*.jpg
-│   ├── val/*.jpg
-│   └── test/*.jpg
-├── labels/
-│   ├── train/*.txt
-│   ├── val/*.txt
-│   └── test/*.txt
+├── images/{train,val,test}
+├── labels/{train,val,test}
 └── data.yaml
 ```
 
-Label format (normalized 0-1):
+Label format:
+
 ```
 <class_idx> <x_center> <y_center> <width> <height>
 ```
 
-### COCO Format
+**COCO**
 
 ```
 dataset/
-├── images/*.jpg
+├── images/
 └── annotations.json
 ```
 
-Bounding boxes in absolute pixels: `[x, y, width, height]`
+---
+
+## Architecture
+
+```
+Frontend:  React + Vite + Konva
+Backend:   FastAPI + SQLAlchemy
+Database:  PostgreSQL
+Queue:     Redis + Celery
+ML Stack:  Ultralytics YOLO + PyTorch (CUDA)
+Storage:   Local volume (./data)
+```
+
+---
 
 ## Configuration
 
-Key environment variables (set in `docker-compose.yml`):
+Key environment variables (via `docker-compose.yml`):
 
-**Backend:**
-- `DATABASE_URL`: PostgreSQL connection string
-- `STORAGE_DIR`: Persistent storage path (default: `/app/data`)
-- `REDIS_URL`: Redis connection for job queue
-- `CORS_ORIGINS`: Allowed frontend origins
+### Backend
 
-**Frontend:**
-- `VITE_API_BASE`: Backend API URL (default: `http://localhost:8000`)
+* `DATABASE_URL`
+* `STORAGE_DIR`
+* `REDIS_URL`
+* `CORS_ORIGINS`
+* `JWT_SECRET`
+
+### Frontend
+
+* `VITE_API_BASE`
+
+---
 
 ## API Reference
 
 Key endpoints:
 
 ```
-POST   /api/projects                              Create project
-GET    /api/projects/{id}                         Get project details
-POST   /api/projects/{id}/classes                 Add classes
-POST   /api/projects/{id}/datasets                Create dataset
-POST   /api/datasets/{id}/upload                  Upload images (zip)
-POST   /api/projects/{id}/models                  Upload model weights
-GET    /api/datasets/{id}/items                   List dataset images
-POST   /api/projects/{id}/jobs/auto-annotate      Start auto-annotation
-GET    /api/jobs/{id}                             Check job status
-GET    /api/items/{id}/annotations                Get annotations
-PUT    /api/items/{id}/annotations                Save annotations
-POST   /api/projects/{id}/exports                 Create export
-GET    /api/exports/{id}/download                 Download export zip
-GET    /media/items/{id}                          Retrieve image
+POST   /api/projects/{id}/jobs/auto-annotate
+POST   /api/projects/{id}/jobs/train-yolo
+GET    /api/projects/{id}/jobs
+GET    /api/jobs/{id}
+POST   /api/projects/{id}/exports
+GET    /media/items/{id}
 ```
 
-Full API documentation: http://localhost:8000/docs
+Full docs:
+[http://localhost:8000/docs](http://localhost:8000/docs)
+
+---
 
 ## Troubleshooting
 
-**Docker build fails with DNS errors:**
-- Check network connectivity to Docker Hub
-- Configure Docker DNS: Settings → Docker Engine → Add `{"dns": ["1.1.1.1", "8.8.8.8"]}`
+### GPU not detected in container
 
-**Auto-annotation produces no results:**
-- Verify project class names match model class names (case-insensitive)
-- Lower confidence threshold (try 0.15-0.25)
-- Confirm model is for object detection
+Run:
 
-**Images not loading in UI:**
-- Verify backend is accessible at `http://localhost:8000`
-- Check browser console for network errors
-- Confirm `VITE_API_BASE` environment variable
+```bash
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+```
 
-**Slow initial build:**
-- First build installs large dependencies (Ultralytics, OpenCV)
-- Subsequent builds use Docker cache and complete faster
+If this fails:
+
+* Install NVIDIA drivers
+* Enable GPU support in Docker Desktop
+* Restart Docker Desktop
+
+---
+
+### CUDA error: `torch.cuda.is_available(): False`
+
+* Ensure backend image uses **CUDA PyTorch**
+* Rebuild with `--no-cache`
+* Confirm `gpus: all` in `docker-compose.yml`
+
+---
+
+### Auto-annotation produces no results
+
+* Lower confidence threshold
+* Check class-name matching
+* Confirm model is detection (not classification)
+
+---
+
+### Training fails with CUDA OOM
+
+* Reduce batch size
+* Enable auto fallback (already supported)
+* Close other GPU-heavy apps
+
+---
 
 ## Current Limitations
 
-- Auto-annotation supports only Ultralytics `.pt` weights (ONNX upload allowed but not used)
-- Detection only (no segmentation or keypoints)
-- No import of existing YOLO/COCO annotations
-- All images default to "train" split—no split management UI
-- Single-user tool (no authentication)
+* Detection only (no segmentation / keypoints)
+* Ultralytics `.pt` only
+* No dataset split UI (yet)
+* Single-user (auth is basic)
+* Local storage only
+
+---
 
 ## Roadmap
 
-Potential enhancements for production use:
+* Dataset split manager
+* Import existing YOLO / COCO labels
+* Class-mapping UI
+* Active learning
+* Multi-user RBAC
+* Model versioning
+* Cloud/object storage support
 
-**Workflow improvements:**
-- Dataset split management (random split, manual assignment)
-- Import existing YOLO/COCO labels
-- Keyboard shortcuts for classes (1-9), box duplication, nudging
-- Canvas zoom/pan, grid snap, minimum box size constraints
+---
 
-**Auto-annotation:**
-- Class mapping UI (map model classes to project classes)
-- Active learning (prioritize low-confidence predictions)
-- Batch processing optimizations
+## Development Mode (No Docker)
 
-**Enterprise features:**
-- Multi-user authentication and role-based access
-- Audit logging
-- Model registry with versioning
-- Additional export formats (Pascal VOC, LabelMe, Roboflow)
+**Backend**
 
-## Development Mode
-
-Run without Docker for development:
-
-**Backend:**
 ```bash
-# Requirements: Python 3.11, PostgreSQL, Redis
-export DATABASE_URL=postgresql+psycopg://annotator:annotator@localhost/annotator
-export REDIS_URL=redis://localhost:6379
-export STORAGE_DIR=./data
-
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload
 celery -A app.workers.celery_app.celery worker --loglevel=INFO
 ```
 
-**Frontend:**
+**Frontend**
+
 ```bash
 npm install
-npm run dev -- --port 5173
+npm run dev
 ```
 
 ---
 
-## license / internal use
+## License / Internal Use
 
-use internally as needed. if you plan to ship externally, add auth, rate limits, and storage hardening first.
+Internal use only.
+Before external deployment: add auth hardening, rate limits, and secure storage.
 
-```
-```
+---
+

@@ -284,6 +284,12 @@ export default function ProjectDashboard() {
             view auto
           </Link>
           <Link
+            to={`/project/${projectId}/train`}
+            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
+          >
+            train yolo
+          </Link>
+          <Link
             className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
             to={`/project/${projectId}/export`}
           >

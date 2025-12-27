@@ -9,6 +9,7 @@ import ProjectDashboard from "./pages/ProjectDashboard"
 import Annotate from "./pages/Annotate"
 import AutoAnnotate from "./pages/AutoAnnotate"
 import ViewAutoAnnotations from "./pages/ViewAutoAnnotations"
+import TrainYolo from "./pages/TrainYolo"
 import ExportPage from "./pages/ExportPage"
 import AdminUsers from "./pages/AdminUsers"
 import Jobs from "./pages/Jobs"
@@ -29,6 +30,7 @@ export default function App() {
       <Route path="/project/:id/annotate" element={<Protected><Annotate /></Protected>} />
       <Route path="/project/:id/auto" element={<Protected><AutoAnnotate /></Protected>} />
       <Route path="/project/:id/view-auto" element={<Protected><ViewAutoAnnotations /></Protected>} />
+      <Route path="/project/:id/train" element={<Protected><TrainYolo /></Protected>} />
       <Route path="/project/:id/export" element={<Protected><ExportPage /></Protected>} />
       <Route path="/project/:id/jobs" element={<Protected><Jobs /></Protected>} />
 

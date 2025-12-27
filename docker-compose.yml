@@ -17,6 +17,7 @@ services:
 
   backend:
     build: ./backend
+    gpus: all
     environment:
       DATABASE_URL: postgresql+psycopg://annotator:annotator@postgres:5432/annotator
       STORAGE_DIR: /app/data
@@ -28,6 +29,8 @@ services:
       REFRESH_TOKEN_DAYS: "14"
       BOOTSTRAP_ADMIN_EMAIL: "admin@local"
       BOOTSTRAP_ADMIN_PASSWORD: "admin12345"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
     volumes:
       - ./data:/app/data
     ports:
@@ -38,7 +41,8 @@ services:
 
   worker:
     build: ./backend
-    command: celery -A app.workers.celery_app.celery worker --loglevel=INFO
+    command: celery -A app.workers.celery_app.celery worker -l info -I app.workers.tasks --pool=solo --concurrency=1
+    gpus: all
     environment:
       DATABASE_URL: postgresql+psycopg://annotator:annotator@postgres:5432/annotator
       STORAGE_DIR: /app/data
@@ -49,6 +53,8 @@ services:
       REFRESH_TOKEN_DAYS: "14"
       BOOTSTRAP_ADMIN_EMAIL: "admin@local"
       BOOTSTRAP_ADMIN_PASSWORD: "admin12345"
+      NVIDIA_VISIBLE_DEVICES: "all"
+      NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
     volumes:
       - ./data:/app/data
     depends_on:

@@ -25,6 +25,10 @@ export default function ExportPage() {
   const [lastExport, setLastExport] = useState<Export | null>(null)
   const [exporting, setExporting] = useState(false)
 
+  const [jobId, setJobId] = useState<number>(0)
+  const [artifacts, setArtifacts] = useState<any | null>(null)
+  const [loadingArtifacts, setLoadingArtifacts] = useState(false)
+
   async function refresh() {
     try {
       const [d, s] = await Promise.all([
@@ -44,6 +48,29 @@ export default function ExportPage() {
     if (projectId) refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
+
+  // clear old artifacts when job id changes (so UI doesn't show stale buttons)
+  useEffect(() => {
+    setArtifacts(null)
+  }, [jobId])
+
+  async function loadArtifacts(jid: number) {
+    if (!jid) {
+      showToast("enter a valid job id", "error")
+      return
+    }
+    try {
+      setLoadingArtifacts(true)
+      const r = await api.get(`/api/jobs/${jid}/artifacts`)
+      setArtifacts(r.data)
+      showToast("artifacts loaded", "success")
+    } catch (err: any) {
+      setArtifacts(null)
+      showToast(err?.response?.data?.detail || "failed to load artifacts", "error")
+    } finally {
+      setLoadingArtifacts(false)
+    }
+  }
 
   async function doExport(fmt: "yolo" | "coco") {
     if (!datasetId || !setId) {
@@ -74,115 +101,165 @@ export default function ExportPage() {
   }
 
   return (
-    <div className="max-w-6xl">
-      <div className="mb-6">
-        <div className="text-2xl font-semibold text-slate-900">export annotations</div>
-        <div className="text-sm text-slate-500 mt-1">export your annotations in yolo or coco format</div>
-      </div>
-
-      <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-6 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="text-xs text-blue-600 mb-1 block font-medium">dataset</label>
-            <select
-              className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-              value={datasetId}
-              onChange={(e) => setDatasetId(Number(e.target.value))}
-            >
-              {datasets.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs text-blue-600 mb-1 block font-medium">annotation set</label>
-            <select
-              className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-              value={setId}
-              onChange={(e) => setSetId(Number(e.target.value))}
-            >
-              {sets.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.source})
-                </option>
-              ))}
-            </select>
-          </div>
+    <>
+      <div className="max-w-6xl">
+        <div className="mb-6">
+          <div className="text-2xl font-semibold text-slate-900">export annotations</div>
+          <div className="text-sm text-slate-500 mt-1">export your annotations in yolo or coco format</div>
         </div>
 
-        <div className="space-y-3 mb-6">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeImages}
-              onChange={(e) => setIncludeImages(e.target.checked)}
-              className="w-4 h-4 accent-blue-600"
-            />
-            <span className="text-sm text-slate-800">include images in export</span>
-          </label>
+        <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-6 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div>
+              <label className="text-xs text-blue-600 mb-1 block font-medium">dataset</label>
+              <select
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                value={datasetId}
+                onChange={(e) => setDatasetId(Number(e.target.value))}
+              >
+                {datasets.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={approvedOnly}
-              onChange={(e) => setApprovedOnly(e.target.checked)}
-              className="w-4 h-4 accent-blue-600"
-            />
-            <span className="text-sm text-slate-800">export only approved annotations</span>
-          </label>
-        </div>
+            <div>
+              <label className="text-xs text-blue-600 mb-1 block font-medium">annotation set</label>
+              <select
+                className="w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                value={setId}
+                onChange={(e) => setSetId(Number(e.target.value))}
+              >
+                {sets.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.source})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-        <div className="flex flex-wrap gap-3">
-          <button
-            className={cx(
-              "rounded-xl px-6 py-2.5 font-medium transition-colors",
-              "text-white",
-              exporting || !datasetId || !setId
-                ? "bg-blue-300 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 shadow-sm"
+          <div className="space-y-3 mb-6">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeImages}
+                onChange={(e) => setIncludeImages(e.target.checked)}
+                className="w-4 h-4 accent-blue-600"
+              />
+              <span className="text-sm text-slate-800">include images in export</span>
+            </label>
+
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={approvedOnly}
+                onChange={(e) => setApprovedOnly(e.target.checked)}
+                className="w-4 h-4 accent-blue-600"
+              />
+              <span className="text-sm text-slate-800">export only approved annotations</span>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              className={cx(
+                "rounded-xl px-6 py-2.5 font-medium transition-colors",
+                "text-white",
+                exporting || !datasetId || !setId
+                  ? "bg-blue-300 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 shadow-sm"
+              )}
+              onClick={() => doExport("yolo")}
+              disabled={exporting || !datasetId || !setId}
+            >
+              {exporting ? "exporting..." : "export yolo"}
+            </button>
+
+            <button
+              className={cx(
+                "rounded-xl px-6 py-2.5 font-medium transition-colors",
+                "text-white",
+                exporting || !datasetId || !setId
+                  ? "bg-blue-300 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700 shadow-sm"
+              )}
+              onClick={() => doExport("coco")}
+              disabled={exporting || !datasetId || !setId}
+            >
+              {exporting ? "exporting..." : "export coco"}
+            </button>
+
+            {lastExport && (
+              <button
+                className="rounded-xl px-6 py-2.5 font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                onClick={download}
+              >
+                download export
+              </button>
             )}
-            onClick={() => doExport("yolo")}
-            disabled={exporting || !datasetId || !setId}
-          >
-            {exporting ? "exporting..." : "export yolo"}
-          </button>
-
-          <button
-            className={cx(
-              "rounded-xl px-6 py-2.5 font-medium transition-colors",
-              "text-white",
-              exporting || !datasetId || !setId
-                ? "bg-blue-300 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700 shadow-sm"
-            )}
-            onClick={() => doExport("coco")}
-            disabled={exporting || !datasetId || !setId}
-          >
-            {exporting ? "exporting..." : "export coco"}
-          </button>
+          </div>
 
           {lastExport && (
-            <button
-              className="rounded-xl px-6 py-2.5 font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-              onClick={download}
-            >
-              download export
-            </button>
+            <div className="mt-6 p-4 bg-blue-50/60 border border-blue-100/70 rounded-2xl">
+              <div className="text-sm font-semibold text-slate-900">last export</div>
+              <div className="text-xs text-slate-600 mt-1">
+                id: {lastExport.id} • format: {lastExport.fmt.toUpperCase()}
+              </div>
+            </div>
           )}
         </div>
+      </div>
 
-        {lastExport && (
-          <div className="mt-6 p-4 bg-blue-50/60 border border-blue-100/70 rounded-2xl">
-            <div className="text-sm font-semibold text-slate-900">last export</div>
-            <div className="text-xs text-slate-600 mt-1">
-              id: {lastExport.id} • format: {lastExport.fmt.toUpperCase()}
-            </div>
+      <div className="mt-8 bg-white/80 border border-blue-100/70 rounded-3xl p-6 shadow-sm">
+        <div className="text-lg font-semibold text-slate-900 mb-2">training artifacts</div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <input
+            type="number"
+            placeholder="job id"
+            className="border border-blue-200 rounded-xl px-3 py-2 w-32"
+            value={jobId || ""}
+            onChange={(e) => setJobId(Number(e.target.value))}
+          />
+          <button
+            className={cx(
+              "px-4 py-2 rounded-xl text-white transition-colors",
+              !jobId || loadingArtifacts
+                ? "bg-blue-300 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700"
+            )}
+            disabled={!jobId || loadingArtifacts}
+            onClick={() => loadArtifacts(jobId)}
+          >
+            {loadingArtifacts ? "loading..." : "load"}
+          </button>
+        </div>
+
+        {artifacts && (
+          <div className="flex flex-wrap gap-3">
+            {artifacts.model?.available && (
+              <button
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white hover:bg-emerald-700"
+                onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/model`, "_blank")}
+              >
+                download model.pt
+              </button>
+            )}
+
+            {artifacts.benchmark_report?.available && (
+              <button
+                className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700"
+                onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/report`, "_blank")}
+              >
+                download benchmark report
+              </button>
+            )}
           </div>
         )}
       </div>
-    </div>
+    </>
   )
 }

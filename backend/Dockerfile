@@ -14,18 +14,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglx0 \
     && rm -rf /var/lib/apt/lists/*
 
-# upgrade pip tooling
-RUN python -m pip install --upgrade pip setuptools wheel
-
-# IMPORTANT: pre-install CPU-only torch and torchvision so ultralytics doesn't pull CUDA+nvidia wheels
-# Install torch first, then let pip resolve compatible torchvision version
-ARG TORCH_VER=2.9.1
-RUN pip install --no-cache-dir --retries 15 --timeout 600 \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torch==${TORCH_VER} && \
+# CUDA-enabled PyTorch (for RTX 4060 Ti) — use cu121 wheels
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir --retries 15 --timeout 600 \
-    --index-url https://download.pytorch.org/whl/cpu \
-    torchvision
+      torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --retries 15 --timeout 600 -r requirements.txt

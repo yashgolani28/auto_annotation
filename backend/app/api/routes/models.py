@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
@@ -69,3 +70,16 @@ def delete_model(model_id: int, db: Session = Depends(get_db), user: User = Depe
     db.delete(mw)
     db.commit()
     return {"status": "deleted"}
+
+@router.get("/projects/{project_id}/models/{model_id}/benchmark-report")
+def get_benchmark_report(project_id: int, model_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    mw = db.query(ModelWeight).filter(ModelWeight.id == model_id, ModelWeight.project_id == project_id).first()
+    if not mw:
+        raise HTTPException(status_code=404, detail="model not found")
+    rel = (mw.meta or {}).get("bench", {}).get("benchmark_report_rel_path")
+    if not rel:
+        raise HTTPException(status_code=404, detail="benchmark report not found")
+    p = Path(settings.storage_dir) / rel
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="benchmark report file missing")
+    return FileResponse(str(p), media_type="text/markdown", filename="benchmark_report.md")
