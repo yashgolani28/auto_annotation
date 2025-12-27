@@ -25,16 +25,79 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
 
-      <Route path="/" element={<Protected><Projects /></Protected>} />
-      <Route path="/project/:id" element={<Protected><ProjectDashboard /></Protected>} />
-      <Route path="/project/:id/annotate" element={<Protected><Annotate /></Protected>} />
-      <Route path="/project/:id/auto" element={<Protected><AutoAnnotate /></Protected>} />
-      <Route path="/project/:id/view-auto" element={<Protected><ViewAutoAnnotations /></Protected>} />
-      <Route path="/project/:id/train" element={<Protected><TrainYolo /></Protected>} />
-      <Route path="/project/:id/export" element={<Protected><ExportPage /></Protected>} />
-      <Route path="/project/:id/jobs" element={<Protected><Jobs /></Protected>} />
+      <Route
+        path="/"
+        element={
+          <Protected>
+            <Projects />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id"
+        element={
+          <Protected>
+            <ProjectDashboard />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/annotate"
+        element={
+          <Protected>
+            <Annotate />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/auto"
+        element={
+          <Protected>
+            <AutoAnnotate />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/view-auto"
+        element={
+          <Protected>
+            <ViewAutoAnnotations />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/train"
+        element={
+          <Protected>
+            <TrainYolo />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/export"
+        element={
+          <Protected>
+            <ExportPage />
+          </Protected>
+        }
+      />
+      <Route
+        path="/project/:id/jobs"
+        element={
+          <Protected>
+            <Jobs />
+          </Protected>
+        }
+      />
 
-      <Route path="/admin/users" element={<Protected><AdminUsers /></Protected>} />
+      <Route
+        path="/admin/users"
+        element={
+          <Protected>
+            <AdminUsers />
+          </Protected>
+        }
+      />
     </Routes>
   )
 }

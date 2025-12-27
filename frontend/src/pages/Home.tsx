@@ -10,6 +10,20 @@ function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
 }
 
+const UI = {
+  h1: "text-2xl font-semibold text-slate-900 dark:text-slate-100",
+  sub: "text-sm text-slate-600 dark:text-slate-300 mt-1",
+  card: "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
+  input:
+    "w-full rounded-xl border border-blue-200/70 bg-white/90 px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+  btnPrimary:
+    "rounded-xl px-4 py-2 font-medium text-white transition-colors shadow-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed dark:bg-sky-600 dark:hover:bg-sky-500 dark:disabled:bg-slate-700",
+  btnSecondary:
+    "rounded-xl px-3 py-1.5 text-sm font-medium transition-colors border border-blue-200/70 bg-white/80 text-blue-700 hover:bg-blue-50 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
+  badge:
+    "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium border-blue-200/70 bg-blue-50/80 text-blue-800 dark:border-blue-900/60 dark:bg-blue-950/40 dark:text-blue-200",
+}
+
 export default function Home() {
   const [projects, setProjects] = useState<Project[]>([])
   const [name, setName] = useState("")
@@ -25,7 +39,7 @@ export default function Home() {
       const r = await api.get("/api/projects")
       setProjects(r.data || [])
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to load projects", "error")
+      showToast(err?.response?.data?.detail || "Failed to load projects", "error")
     }
   }
 
@@ -39,10 +53,10 @@ export default function Home() {
       setCreating(true)
       await api.post("/api/projects", { name: name.trim(), task_type: "detection" })
       setName("")
-      showToast("project created", "success")
+      showToast("Project created", "success")
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to create project", "error")
+      showToast(err?.response?.data?.detail || "Failed to create project", "error")
     } finally {
       setCreating(false)
     }
@@ -52,29 +66,22 @@ export default function Home() {
     <div className="max-w-6xl">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-2xl font-semibold text-slate-900">projects</div>
-          <div className="text-sm text-slate-500 mt-1">quick access to setup, annotate, auto, export</div>
+          <div className={UI.h1}>Projects</div>
+          <div className={UI.sub}>Quick access to setup, annotate, auto-annotate, and export.</div>
         </div>
 
-        <div className="bg-white/70 border border-blue-100/70 rounded-2xl p-3 shadow-sm flex flex-col sm:flex-row gap-2 w-full md:w-auto">
+        <div className={cx(UI.card, "p-3 flex flex-col sm:flex-row gap-2 w-full md:w-auto")}>
           <input
-            className="border border-blue-200 rounded-xl px-3 py-2 w-full sm:w-80 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            placeholder="new project name"
+            className={cx(UI.input, "sm:w-80")}
+            placeholder="New project name"
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") create()
             }}
           />
-          <button
-            className={cx(
-              "rounded-xl px-4 py-2 font-medium transition-colors",
-              canCreate ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-blue-100 text-blue-400 cursor-not-allowed"
-            )}
-            onClick={create}
-            disabled={!canCreate}
-          >
-            {creating ? "creating..." : "create"}
+          <button className={UI.btnPrimary} onClick={create} disabled={!canCreate}>
+            {creating ? "Creating…" : "Create"}
           </button>
         </div>
       </div>
@@ -84,53 +91,51 @@ export default function Home() {
           <div
             key={p.id}
             className={cx(
-              "group relative",
-              "bg-white/80 border border-blue-100/70 rounded-3xl p-5 shadow-sm",
-              "hover:shadow-md hover:border-blue-200/80 transition"
+              "group relative p-5 transition",
+              UI.card,
+              "hover:shadow-md hover:border-blue-200/80 dark:hover:border-blue-800/60"
             )}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
-                <div className="text-lg font-semibold text-slate-900 truncate">{p.name}</div>
-                <div className="text-xs text-slate-500 mt-1">{p.task_type}</div>
+                <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 truncate">{p.name}</div>
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">{p.task_type}</div>
               </div>
-              <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100 shrink-0">
-                id {p.id}
-              </span>
+              <span className={UI.badge}>ID {p.id}</span>
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2 text-sm">
-              <Link to={`/project/${p.id}`} className="px-3 py-1.5 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors">
-                dashboard
+              <Link to={`/project/${p.id}`} className={cx(UI.btnSecondary, "bg-blue-600 text-white border-blue-600 hover:bg-blue-700 dark:bg-sky-600 dark:hover:bg-sky-500 dark:border-sky-700/50 dark:text-white")}>
+                Dashboard
               </Link>
-              <Link to={`/project/${p.id}/annotate`} className="px-3 py-1.5 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors">
-                annotate
+              <Link to={`/project/${p.id}/annotate`} className={UI.btnSecondary}>
+                Annotate
               </Link>
-              <Link to={`/project/${p.id}/auto`} className="px-3 py-1.5 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors">
-                auto
+              <Link to={`/project/${p.id}/auto`} className={UI.btnSecondary}>
+                Auto-annotate
               </Link>
-              <Link to={`/project/${p.id}/export`} className="px-3 py-1.5 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors">
-                export
+              <Link to={`/project/${p.id}/export`} className={UI.btnSecondary}>
+                Export
               </Link>
             </div>
 
             {canDelete && (
               <button
-                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 text-xs"
+                className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 text-xs dark:bg-rose-950/30 dark:border-rose-900/50 dark:text-rose-200 dark:hover:bg-rose-950/50"
                 onClick={async () => {
                   const ok = confirm(`Delete project "${p.name}" and all its data? This cannot be undone.`)
                   if (!ok) return
                   try {
                     await api.delete(`/api/projects/${p.id}`)
-                    showToast("project deleted", "success")
+                    showToast("Project deleted", "success")
                     refresh()
                   } catch (err: any) {
-                    showToast(err?.response?.data?.detail || "failed to delete project", "error")
+                    showToast(err?.response?.data?.detail || "Failed to delete project", "error")
                   }
                 }}
-                title="delete project"
+                title="Delete project"
               >
-                🗑️
+                Delete
               </button>
             )}
           </div>
@@ -138,8 +143,8 @@ export default function Home() {
 
         {!projects.length && (
           <div className="col-span-full">
-            <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-8 text-center text-slate-600">
-              no projects yet. create one to start.
+            <div className={cx(UI.card, "p-8 text-center text-slate-700 dark:text-slate-200")}>
+              No projects yet. Create one to start.
             </div>
           </div>
         )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
+import { Link } from "react-router-dom"
 import { api } from "../api"
 import { useAuth } from "../state/auth"
 import { useToast } from "../components/Toast"
@@ -7,6 +8,22 @@ type U = { id: number; email: string; name: string; role: string; is_active: boo
 
 function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
+}
+
+const UI = {
+  h1: "text-2xl font-semibold text-slate-900 dark:text-slate-100",
+  sub: "text-sm text-slate-600 dark:text-slate-300 mt-1",
+  card: "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
+  input:
+    "w-full rounded-xl border border-blue-200/70 bg-white/90 px-3 py-2 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+  select:
+    "w-full rounded-xl border border-blue-200/70 bg-white/90 px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+  btnPrimary:
+    "rounded-xl px-5 py-2.5 font-medium text-white transition-colors shadow-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed dark:bg-sky-600 dark:hover:bg-sky-500 dark:disabled:bg-slate-700",
+  btnSecondary:
+    "rounded-xl px-4 py-2 text-sm font-medium transition-colors border border-blue-200/70 bg-white/80 text-blue-700 hover:bg-blue-50 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
+  chip:
+    "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium bg-blue-50/80 text-blue-800 border-blue-200/70 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
 }
 
 export default function AdminUsers() {
@@ -28,7 +45,7 @@ export default function AdminUsers() {
       const r = await api.get("/api/admin/users")
       setUsers(r.data)
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to load users", "error")
+      showToast(err?.response?.data?.detail || "Failed to load users", "error")
     } finally {
       setLoading(false)
     }
@@ -51,7 +68,7 @@ export default function AdminUsers() {
 
   async function create() {
     if (!email.trim() || !password.trim() || !name.trim()) {
-      showToast("email, name and password are required", "error")
+      showToast("Email, name and password are required", "error")
       return
     }
     try {
@@ -61,10 +78,10 @@ export default function AdminUsers() {
       setPassword("")
       setName("")
       setRole("annotator")
-      showToast("user created", "success")
+      showToast("User created", "success")
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to create user", "error")
+      showToast(err?.response?.data?.detail || "Failed to create user", "error")
     } finally {
       setCreating(false)
     }
@@ -73,9 +90,9 @@ export default function AdminUsers() {
   if (user?.role !== "admin") {
     return (
       <div className="max-w-3xl">
-        <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-6 shadow-sm">
-          <div className="text-lg font-semibold text-slate-900">forbidden</div>
-          <div className="text-sm text-slate-600 mt-1">admin access required.</div>
+        <div className={cx(UI.card, "p-6")}>
+          <div className={cx(UI.h1, "text-lg")}>Forbidden</div>
+          <div className={UI.sub}>Admin access required.</div>
         </div>
       </div>
     )
@@ -85,85 +102,59 @@ export default function AdminUsers() {
     <div className="max-w-6xl">
       <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="text-2xl font-semibold text-slate-900">users</div>
-          <div className="text-sm text-slate-500 mt-1">create and manage team accounts</div>
+          <div className={UI.h1}>Users</div>
+          <div className={UI.sub}>Create and manage team accounts.</div>
         </div>
 
         <div className="w-full md:w-96">
           <input
-            className="w-full border border-slate-200 rounded-xl px-3 py-2 bg-white/90 focus:outline-none focus:ring-2 focus:ring-blue-200"
-            placeholder="search by email, name, role"
+            className={UI.input}
+            placeholder="Search by email, name, role"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
       </div>
 
-      {/* create */}
-      <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-5 mt-6 shadow-sm">
-        <div className="font-semibold text-slate-900">create user</div>
-        <div className="text-xs text-slate-500 mt-1">set role and credentials</div>
+      {/* Create */}
+      <div className={cx(UI.card, "p-5 mt-6")}>
+        <div className="font-semibold text-slate-900 dark:text-slate-100">Create user</div>
+        <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">Set role and credentials.</div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-4">
-          <input
-            className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            placeholder="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <input
-            className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            placeholder="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          <input className={UI.input} placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input className={UI.input} placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
           <input
             type="password"
-            className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            placeholder="password"
+            className={UI.input}
+            placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <select
-            className="border border-slate-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-200"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-          >
-            <option value="annotator">annotator</option>
-            <option value="reviewer">reviewer</option>
-            <option value="viewer">viewer</option>
-            <option value="admin">admin</option>
+          <select className={UI.select} value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="annotator">Annotator</option>
+            <option value="reviewer">Reviewer</option>
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
           </select>
         </div>
 
-        <button
-          className={cx(
-            "mt-4 rounded-xl px-5 py-2.5 font-medium transition-colors",
-            creating
-              ? "bg-slate-200 text-slate-500 cursor-not-allowed"
-              : "bg-blue-600 text-white hover:bg-blue-700"
-          )}
-          onClick={create}
-          disabled={creating}
-        >
-          {creating ? "creating..." : "create"}
+        <button className={cx(UI.btnPrimary, "mt-4")} onClick={create} disabled={creating}>
+          {creating ? "Creating…" : "Create user"}
         </button>
       </div>
 
-      {/* list */}
-      <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-5 mt-6 shadow-sm">
+      {/* List */}
+      <div className={cx(UI.card, "p-5 mt-6")}>
         <div className="flex items-center justify-between">
           <div>
-            <div className="font-semibold text-slate-900">existing</div>
-            <div className="text-xs text-slate-500 mt-1">
-              {loading ? "loading..." : `${filtered.length} user(s)`}
+            <div className="font-semibold text-slate-900 dark:text-slate-100">Existing users</div>
+            <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+              {loading ? "Loading…" : `${filtered.length} user(s)`}
             </div>
           </div>
-          <button
-            className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-slate-200 hover:bg-slate-50 transition-colors"
-            onClick={refresh}
-          >
-            refresh
+          <button className={UI.btnSecondary} onClick={refresh}>
+            Refresh
           </button>
         </div>
 
@@ -171,34 +162,44 @@ export default function AdminUsers() {
           {filtered.map((u) => (
             <div
               key={u.id}
-              className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border border-slate-200 rounded-2xl p-4 bg-white/70"
+              className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-2xl border border-blue-100/70 bg-white/70 p-4 dark:border-blue-900/50 dark:bg-slate-950/30"
             >
               <div className="min-w-0">
-                <div className="font-semibold text-slate-900 truncate">{u.email}</div>
-                <div className="text-xs text-slate-500 mt-1">
-                  {u.name} • <span className="font-medium text-slate-700">{u.role}</span> • id {u.id}
+                <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{u.email}</div>
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                  {u.name} • <span className="font-medium">{u.role}</span> • ID {u.id}
                 </div>
               </div>
 
               <div
                 className={cx(
-                  "text-xs px-3 py-1 rounded-full border w-fit",
+                  "text-xs px-3 py-1 rounded-full border w-fit font-medium",
                   u.is_active
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-red-50 text-red-700 border-red-200"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/50"
+                    : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/50"
                 )}
               >
-                {u.is_active ? "active" : "disabled"}
+                {u.is_active ? "Active" : "Disabled"}
               </div>
             </div>
           ))}
 
           {!loading && filtered.length === 0 && (
-            <div className="text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
-              no users found.
+            <div className="text-sm text-slate-700 dark:text-slate-200 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100/70 dark:border-blue-900/50 rounded-2xl p-4">
+              No users found.
             </div>
           )}
         </div>
+
+        <div className="mt-4">
+          <span className={UI.chip}>Tip: Use “Reviewer” for approvals</span>
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <Link to="/" className={UI.btnSecondary}>
+          Back to home
+        </Link>
       </div>
     </div>
   )

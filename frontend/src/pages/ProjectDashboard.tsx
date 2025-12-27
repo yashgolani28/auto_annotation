@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom"
 import { api } from "../api"
 import { useAuth } from "../state/auth"
 import { useToast } from "../components/Toast"
+import PageHeader from "../components/PageHeader"
 
 type LabelClass = { id: number; name: string; color: string; order_index: number }
 type Dataset = { id: number; name: string; project_id: number }
@@ -12,6 +13,63 @@ type ASet = { id: number; name: string; source: string }
 
 function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
+}
+
+const UI = {
+  card: cx(
+    "rounded-3xl p-5 shadow-sm border",
+    "bg-white/80 border-blue-100/70",
+    "dark:bg-slate-900/60 dark:border-blue-900/40 dark:shadow-none"
+  ),
+  sectionTitle: "font-semibold text-slate-900 dark:text-slate-100",
+  sectionSub: "text-xs text-slate-600 dark:text-slate-300 mt-1",
+  label: "text-xs font-medium text-slate-600 dark:text-slate-300",
+  input: cx(
+    "w-full rounded-xl px-3 py-2 border outline-none transition",
+    "bg-white border-blue-200 text-slate-900 placeholder:text-slate-400",
+    "focus:ring-2 focus:ring-blue-300 focus:border-blue-300",
+    "dark:bg-slate-950/40 dark:border-blue-900/50 dark:text-slate-100 dark:placeholder:text-slate-400",
+    "dark:focus:ring-blue-700/40 dark:focus:border-blue-700"
+  ),
+  textarea: cx(
+    "w-full rounded-2xl p-3 border outline-none transition min-h-[150px]",
+    "bg-white border-blue-200 text-slate-900 placeholder:text-slate-400",
+    "focus:ring-2 focus:ring-blue-300 focus:border-blue-300",
+    "dark:bg-slate-950/40 dark:border-blue-900/50 dark:text-slate-100 dark:placeholder:text-slate-400",
+    "dark:focus:ring-blue-700/40 dark:focus:border-blue-700"
+  ),
+  select: cx(
+    "rounded-xl px-3 py-2 border outline-none transition",
+    "bg-white border-blue-200 text-slate-900",
+    "focus:ring-2 focus:ring-blue-300 focus:border-blue-300",
+    "dark:bg-slate-950/40 dark:border-blue-900/50 dark:text-slate-100",
+    "dark:focus:ring-blue-700/40 dark:focus:border-blue-700"
+  ),
+  btnPrimary: cx(
+    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium transition-colors",
+    "bg-blue-600 text-white hover:bg-blue-700",
+    "dark:bg-blue-500 dark:hover:bg-blue-400"
+  ),
+  btnSecondary: cx(
+    "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 font-medium transition-colors border",
+    "bg-white/70 border-blue-200 text-blue-700 hover:bg-blue-50",
+    "dark:bg-slate-950/30 dark:border-blue-900/50 dark:text-blue-200 dark:hover:bg-slate-900/60"
+  ),
+  btnDanger: cx(
+    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 font-medium transition-colors border",
+    "bg-red-50 border-red-200 text-red-700 hover:bg-red-100",
+    "dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-200 dark:hover:bg-red-950/50"
+  ),
+  badgeBlue: cx(
+    "inline-flex items-center rounded-full px-3 py-1 text-xs font-medium border",
+    "bg-blue-50 text-blue-700 border-blue-200",
+    "dark:bg-blue-950/30 dark:text-blue-200 dark:border-blue-900/60"
+  ),
+  mutedBox: cx(
+    "text-sm rounded-2xl p-4 border",
+    "bg-blue-50 text-blue-700 border-blue-200",
+    "dark:bg-slate-950/30 dark:text-blue-200 dark:border-blue-900/50"
+  ),
 }
 
 function Section({
@@ -26,11 +84,11 @@ function Section({
   children: React.ReactNode
 }) {
   return (
-    <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-5 shadow-sm">
+    <div className={UI.card}>
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-semibold text-slate-900">{title}</div>
-          {subtitle && <div className="text-xs text-slate-500 mt-1">{subtitle}</div>}
+        <div className="min-w-0">
+          <div className={UI.sectionTitle}>{title}</div>
+          {subtitle && <div className={UI.sectionSub}>{subtitle}</div>}
         </div>
         {right}
       </div>
@@ -69,7 +127,6 @@ export default function ProjectDashboard() {
   const [importFile, setImportFile] = useState<File | null>(null)
 
   const canAdmin = useMemo(() => user?.role === "admin" || user?.role === "reviewer", [user?.role])
-  const isGlobalAdmin = useMemo(() => user?.role === "admin", [user?.role])
 
   async function refresh() {
     try {
@@ -89,7 +146,7 @@ export default function ProjectDashboard() {
       if (!importSetId && s.data.length) setImportSetId(s.data[0].id)
       if (!importDatasetId && d.data.length) setImportDatasetId(d.data[0].id)
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to load data", "error")
+      showToast(err?.response?.data?.detail || "Failed to load data.", "error")
     } finally {
       setLoading(false)
     }
@@ -108,7 +165,7 @@ export default function ProjectDashboard() {
         .filter(Boolean)
 
       if (lines.length === 0) {
-        showToast("please enter at least one class", "error")
+        showToast("Please enter at least one class.", "error")
         return
       }
 
@@ -127,17 +184,17 @@ export default function ProjectDashboard() {
 
       const payload = lines.map((name, idx) => ({ name, color: palette[idx % palette.length] }))
       await api.post(`/api/projects/${projectId}/classes`, payload)
-      showToast(`saved ${lines.length} classes`, "success")
+      showToast(`Saved ${lines.length} classes.`, "success")
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to save classes", "error")
+      showToast(err?.response?.data?.detail || "Failed to save classes.", "error")
     }
   }
 
   async function createDataset() {
     const nm = datasetName.trim()
     if (!nm) {
-      showToast("dataset name required", "error")
+      showToast("Dataset name is required.", "error")
       throw new Error("dataset name required")
     }
     const r = await api.post(`/api/projects/${projectId}/datasets`, { name: nm })
@@ -146,7 +203,7 @@ export default function ProjectDashboard() {
 
   async function uploadZip() {
     if (!zipFile) {
-      showToast("please select a zip file", "error")
+      showToast("Please select a ZIP file.", "error")
       return
     }
     try {
@@ -156,17 +213,17 @@ export default function ProjectDashboard() {
       const r = await api.post(`/api/datasets/${ds.id}/upload`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       })
-      showToast(`uploaded ${r.data.added || 0} images`, "success")
+      showToast(`Uploaded ${r.data.added || 0} images.`, "success")
       setZipFile(null)
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "upload failed", "error")
+      showToast(err?.response?.data?.detail || "Upload failed.", "error")
     }
   }
 
   async function uploadModel() {
     if (!modelFile) {
-      showToast("please select a model file", "error")
+      showToast("Please select a model file.", "error")
       return
     }
     try {
@@ -176,26 +233,26 @@ export default function ProjectDashboard() {
       await api.post(`/api/projects/${projectId}/models`, form, {
         headers: { "Content-Type": "multipart/form-data" },
       })
-      showToast("model uploaded", "success")
+      showToast("Model uploaded.", "success")
       setModelFile(null)
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "model upload failed", "error")
+      showToast(err?.response?.data?.detail || "Model upload failed.", "error")
     }
   }
 
   async function addMember() {
     if (!memberEmail.trim()) {
-      showToast("member email required", "error")
+      showToast("Member email is required.", "error")
       return
     }
     try {
       await api.post(`/api/projects/${projectId}/members`, { email: memberEmail.trim(), role: memberRole })
-      showToast("member added", "success")
+      showToast("Member added.", "success")
       setMemberEmail("")
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "failed to add member", "error")
+      showToast(err?.response?.data?.detail || "Failed to add member.", "error")
     }
   }
 
@@ -207,16 +264,16 @@ export default function ProjectDashboard() {
         test: 0.1,
         seed: splitSeed,
       })
-      showToast(`split updated for ${r.data.count || 0} items`, "success")
+      showToast(`Split updated for ${r.data.count || 0} items.`, "success")
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "split failed", "error")
+      showToast(err?.response?.data?.detail || "Split failed.", "error")
     }
   }
 
   async function importYolo() {
     if (!importFile) {
-      showToast("select a yolo zip or coco json", "error")
+      showToast("Select a YOLO ZIP or COCO JSON file.", "error")
       return
     }
     try {
@@ -227,17 +284,17 @@ export default function ProjectDashboard() {
         form,
         { headers: { "Content-Type": "multipart/form-data" } }
       )
-      showToast("yolo labels imported", "success")
+      showToast("YOLO labels imported.", "success")
       setImportFile(null)
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "import failed", "error")
+      showToast(err?.response?.data?.detail || "Import failed.", "error")
     }
   }
 
   async function importCoco() {
     if (!importFile) {
-      showToast("select a yolo zip or coco json", "error")
+      showToast("Select a YOLO ZIP or COCO JSON file.", "error")
       return
     }
     try {
@@ -248,110 +305,86 @@ export default function ProjectDashboard() {
         form,
         { headers: { "Content-Type": "multipart/form-data" } }
       )
-      showToast("coco labels imported", "success")
+      showToast("COCO labels imported.", "success")
       setImportFile(null)
       refresh()
     } catch (err: any) {
-      showToast(err?.response?.data?.detail || "import failed", "error")
+      showToast(err?.response?.data?.detail || "Import failed.", "error")
     }
   }
 
   return (
     <div className="max-w-6xl">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-2xl font-semibold text-slate-900">project dashboard</div>
-          <div className="text-sm text-slate-500 mt-1">setup, datasets, members, imports</div>
-        </div>
+      <PageHeader
+        title="Project dashboard"
+        subtitle="Setup, datasets, members, imports"
+        backToProjects
+        right={
+          <>
+            <Link className={UI.btnPrimary} to={`/project/${projectId}/annotate`}>
+              Annotate
+            </Link>
+            <Link className={UI.btnSecondary} to={`/project/${projectId}/auto`}>
+              Auto annotate
+            </Link>
+            <Link className={UI.btnSecondary} to={`/project/${projectId}/view-auto`}>
+              View auto
+            </Link>
+            <Link className={UI.btnSecondary} to={`/project/${projectId}/train`}>
+              Train YOLO
+            </Link>
+            <Link className={UI.btnSecondary} to={`/project/${projectId}/export`}>
+              Export
+            </Link>
+            <Link className={UI.btnSecondary} to={`/project/${projectId}/jobs`}>
+              Jobs
+            </Link>
+            <button className={UI.btnSecondary} onClick={refresh} disabled={loading}>
+              {loading ? "Loading…" : "Refresh"}
+            </button>
+          </>
+        }
+      />
 
-        <div className="flex flex-wrap gap-2">
-          <Link
-            className="px-4 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-            to={`/project/${projectId}/annotate`}
-          >
-            annotate
-          </Link>
-          <Link
-            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-            to={`/project/${projectId}/auto`}
-          >
-            auto
-          </Link>
-          <Link
-            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-            to={`/project/${projectId}/view-auto`}
-          >
-            view auto
-          </Link>
-          <Link
-            to={`/project/${projectId}/train`}
-            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-          >
-            train yolo
-          </Link>
-          <Link
-            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-            to={`/project/${projectId}/export`}
-          >
-            export
-          </Link>
-          <Link
-            className="px-4 py-2 rounded-xl bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-            to={`/project/${projectId}/jobs`}
-          >
-            jobs
-          </Link>
-          <button
-            className={cx(
-              "px-4 py-2 rounded-xl border transition-colors",
-              loading ? "bg-blue-100 text-blue-500 border-blue-200 cursor-not-allowed" : "bg-white hover:bg-blue-50 border-blue-200 text-blue-700"
-            )}
-            onClick={refresh}
-            disabled={loading}
-          >
-            {loading ? "loading..." : "refresh"}
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <Section
-          title="classes"
-          subtitle="one per line"
+          title="Classes"
+          subtitle="One per line"
           right={
-            <button
-              className="rounded-xl px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              onClick={saveClasses}
-            >
-              save
+            <button className={UI.btnPrimary} onClick={saveClasses}>
+              Save
             </button>
           }
         >
-          <textarea
-            className="w-full border border-blue-200 rounded-2xl p-3 min-h-[150px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={classText}
-            onChange={(e) => setClassText(e.target.value)}
-          />
+          <textarea className={UI.textarea} value={classText} onChange={(e) => setClassText(e.target.value)} />
           <div className="mt-3 flex flex-wrap gap-2">
             {classes.map((c) => (
               <div
                 key={c.id}
-                className="group relative px-3 py-1 text-xs rounded-full border border-blue-200 bg-blue-50/80 text-blue-800 flex items-center gap-2"
-                style={{ borderColor: c.color + "40", backgroundColor: c.color + "15", color: c.color || "#1e40af" }}
+                className={cx(
+                  "group relative inline-flex items-center gap-2",
+                  "rounded-full border px-3 py-1 text-xs font-medium",
+                  "dark:bg-slate-950/30"
+                )}
+                style={{
+                  borderColor: (c.color || "#3b82f6") + "66",
+                  backgroundColor: (c.color || "#3b82f6") + "1A",
+                  color: c.color || "#1e40af",
+                }}
               >
-                <span>{c.name}</span>
+                <span className="truncate">{c.name}</span>
                 {canAdmin && (
                   <button
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 ml-1"
+                    className="opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-400 ml-1"
                     onClick={async () => {
                       const ok = confirm(`Delete class "${c.name}"? This cannot be undone.`)
                       if (!ok) return
                       try {
                         await api.delete(`/api/projects/${projectId}/classes/${c.id}`)
-                        showToast("Class deleted", "success")
+                        showToast("Class deleted.", "success")
                         refresh()
                       } catch (err: any) {
-                        showToast(err?.response?.data?.detail || "Failed to delete class", "error")
+                        showToast(err?.response?.data?.detail || "Failed to delete class.", "error")
                       }
                     }}
                     title="Delete class"
@@ -364,173 +397,152 @@ export default function ProjectDashboard() {
           </div>
         </Section>
 
-        <Section title="dataset upload" subtitle="zip of images">
+        <Section title="Dataset upload" subtitle="ZIP of images">
           <div className="flex flex-col md:flex-row gap-2">
+            <input className={UI.input} value={datasetName} onChange={(e) => setDatasetName(e.target.value)} />
             <input
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
-              value={datasetName}
-              onChange={(e) => setDatasetName(e.target.value)}
-            />
-            <input
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className={UI.input}
               type="file"
               accept=".zip"
               onChange={(e) => setZipFile(e.target.files?.[0] || null)}
             />
-            <button
-              className="rounded-xl px-4 py-2 font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              onClick={uploadZip}
-            >
-              upload
+            <button className={UI.btnPrimary} onClick={uploadZip}>
+              Upload
             </button>
           </div>
 
           <div className="mt-4">
-            <div className="text-sm font-semibold text-slate-900">datasets</div>
+            <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">Datasets</div>
             <div className="mt-2 grid gap-2">
               {datasets.map((d) => (
                 <div
                   key={d.id}
-                  className="border border-blue-200 rounded-2xl p-4 bg-white/80 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                  className={cx(
+                    "rounded-2xl p-4 border flex flex-col md:flex-row md:items-center md:justify-between gap-3",
+                    "bg-white/70 border-blue-200",
+                    "dark:bg-slate-950/30 dark:border-blue-900/40"
+                  )}
                 >
-                  <div>
-                    <div className="font-semibold text-slate-900">{d.name}</div>
-                    <div className="text-xs text-slate-500 mt-1">id {d.id}</div>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{d.name}</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">ID {d.id}</div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-500">seed</span>
+                      <span className={UI.label}>Seed</span>
                       <input
-                        className="border border-blue-200 rounded-xl px-2 py-1 w-24 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                        className={cx(UI.input, "w-24 py-1.5")}
                         type="number"
                         value={splitSeed}
                         onChange={(e) => setSplitSeed(Number(e.target.value))}
                       />
                     </div>
 
-                    <button
-                      className="rounded-xl px-3 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-                      onClick={() => doRandomSplit(d.id)}
-                    >
-                      random split
+                    <button className={cx(UI.btnSecondary, "px-3 py-2 text-sm")} onClick={() => doRandomSplit(d.id)}>
+                      Random split
                     </button>
 
                     {canAdmin && (
                       <button
-                        className="rounded-xl px-3 py-2 text-sm font-medium bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-colors"
+                        className={UI.btnDanger}
                         onClick={async () => {
-                          const ok = confirm(`delete dataset "${d.name}" and all its items? this cannot be undone.`)
+                          const ok = confirm(`Delete dataset "${d.name}" and all its items? This cannot be undone.`)
                           if (!ok) return
                           try {
                             await api.delete(`/api/datasets/${d.id}`)
-                            showToast("dataset deleted", "success")
+                            showToast("Dataset deleted.", "success")
                             refresh()
                           } catch (err: any) {
-                            showToast(err?.response?.data?.detail || "failed to delete dataset", "error")
+                            showToast(err?.response?.data?.detail || "Failed to delete dataset.", "error")
                           }
                         }}
                       >
-                        delete
+                        Delete
                       </button>
                     )}
                   </div>
                 </div>
               ))}
 
-              {!datasets.length && (
-                <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                  no datasets yet.
-                </div>
-              )}
+              {!datasets.length && <div className={UI.mutedBox}>No datasets yet.</div>}
             </div>
           </div>
         </Section>
 
-        <Section title="models" subtitle="upload .pt or .onnx weights">
+        <Section title="Models" subtitle="Upload .pt or .onnx weights">
           <div className="flex flex-col md:flex-row gap-2">
+            <input className={UI.input} value={modelName} onChange={(e) => setModelName(e.target.value)} />
             <input
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-            />
-            <input
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className={UI.input}
               type="file"
               accept=".pt,.onnx"
               onChange={(e) => setModelFile(e.target.files?.[0] || null)}
             />
-            <button
-              className="rounded-xl px-4 py-2 font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              onClick={uploadModel}
-            >
-              upload
+            <button className={UI.btnPrimary} onClick={uploadModel}>
+              Upload
             </button>
           </div>
 
           <div className="mt-4 grid gap-2">
             {models.map((m) => (
-              <div key={m.id} className="border border-blue-200 rounded-2xl p-4 bg-white/80">
+              <div
+                key={m.id}
+                className={cx(
+                  "rounded-2xl p-4 border",
+                  "bg-white/70 border-blue-200",
+                  "dark:bg-slate-950/30 dark:border-blue-900/40"
+                )}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="font-semibold text-slate-900 truncate">{m.name}</div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      id {m.id} • {m.framework}
+                    <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{m.name}</div>
+                    <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                      ID {m.id} • {m.framework}
                     </div>
                   </div>
 
                   {canAdmin && (
                     <button
-                      className="rounded-xl px-3 py-2 text-xs font-medium bg-red-50 border border-red-200 text-red-700 hover:bg-red-100 transition-colors"
+                      className={cx(UI.btnDanger, "text-xs")}
                       onClick={async () => {
-                        const ok = confirm(`delete model "${m.name}"? this cannot be undone.`)
+                        const ok = confirm(`Delete model "${m.name}"? This cannot be undone.`)
                         if (!ok) return
                         try {
                           await api.delete(`/api/models/${m.id}`)
-                          showToast("model deleted", "success")
+                          showToast("Model deleted.", "success")
                           refresh()
                         } catch (err: any) {
-                          showToast(err?.response?.data?.detail || "failed to delete model", "error")
+                          showToast(err?.response?.data?.detail || "Failed to delete model.", "error")
                         }
                       }}
                     >
-                      delete
+                      Delete
                     </button>
                   )}
                 </div>
               </div>
             ))}
 
-            {!models.length && (
-              <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                no models uploaded yet.
-              </div>
-            )}
+            {!models.length && <div className={UI.mutedBox}>No models uploaded yet.</div>}
           </div>
         </Section>
 
-        <Section title="members" subtitle="project access control">
+        <Section title="Members" subtitle="Project access control">
           <div className="flex flex-col md:flex-row gap-2">
             <input
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 flex-1"
-              placeholder="user email"
+              className={UI.input}
+              placeholder="User email"
               value={memberEmail}
               onChange={(e) => setMemberEmail(e.target.value)}
             />
-            <select
-              className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-              value={memberRole}
-              onChange={(e) => setMemberRole(e.target.value)}
-            >
-              <option value="annotator">annotator</option>
-              <option value="reviewer">reviewer</option>
-              <option value="viewer">viewer</option>
+            <select className={UI.select} value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
+              <option value="annotator">Annotator</option>
+              <option value="reviewer">Reviewer</option>
+              <option value="viewer">Viewer</option>
             </select>
-            <button
-              className="rounded-xl px-4 py-2 font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-              onClick={addMember}
-            >
-              add
+            <button className={UI.btnPrimary} onClick={addMember}>
+              Add
             </button>
           </div>
 
@@ -538,79 +550,61 @@ export default function ProjectDashboard() {
             {members.map((m) => (
               <div
                 key={m.user_id}
-                className="border border-blue-200 rounded-2xl p-4 bg-white/80 flex items-center justify-between gap-3"
+                className={cx(
+                  "rounded-2xl p-4 border flex items-center justify-between gap-3",
+                  "bg-white/70 border-blue-200",
+                  "dark:bg-slate-950/30 dark:border-blue-900/40"
+                )}
               >
                 <div className="min-w-0">
-                  <div className="font-semibold text-slate-900 truncate">{m.email}</div>
-                  <div className="text-xs text-blue-600 mt-1">{m.name}</div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">{m.email}</div>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">{m.name}</div>
                 </div>
-                <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                  {m.role}
-                </span>
+                <span className={UI.badgeBlue}>{m.role}</span>
               </div>
             ))}
 
-            {!members.length && (
-              <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                no members yet.
-              </div>
-            )}
+            {!members.length && <div className={UI.mutedBox}>No members yet.</div>}
           </div>
         </Section>
 
         <div className="xl:col-span-2">
-          <Section title="import labels" subtitle="import yolo zip (txt) or coco json">
+          <Section title="Import labels" subtitle="Import YOLO ZIP (txt) or COCO JSON">
             <div className="flex flex-wrap gap-2 items-center">
-              <select
-                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-                value={importDatasetId}
-                onChange={(e) => setImportDatasetId(Number(e.target.value))}
-              >
+              <select className={UI.select} value={importDatasetId} onChange={(e) => setImportDatasetId(Number(e.target.value))}>
                 {datasets.map((d) => (
                   <option key={d.id} value={d.id}>
-                    dataset {d.id}: {d.name}
+                    Dataset {d.id}: {d.name}
                   </option>
                 ))}
               </select>
 
-              <select
-                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-                value={importSetId}
-                onChange={(e) => setImportSetId(Number(e.target.value))}
-              >
+              <select className={UI.select} value={importSetId} onChange={(e) => setImportSetId(Number(e.target.value))}>
                 {sets.map((s) => (
                   <option key={s.id} value={s.id}>
-                    aset {s.id}: {s.name} ({s.source})
+                    Set {s.id}: {s.name} ({s.source})
                   </option>
                 ))}
               </select>
 
               <input
-                className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300"
+                className={UI.input}
                 type="file"
                 accept=".zip,.json"
                 onChange={(e) => setImportFile(e.target.files?.[0] || null)}
               />
 
-              <button
-                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-                onClick={importYolo}
-              >
-                import yolo zip
+              <button className={UI.btnSecondary} onClick={importYolo}>
+                Import YOLO ZIP
               </button>
 
-              <button
-                className="rounded-xl px-4 py-2 text-sm font-medium bg-white border border-blue-200 hover:bg-blue-50 text-blue-700 transition-colors"
-                onClick={importCoco}
-              >
-                import coco json
+              <button className={UI.btnSecondary} onClick={importCoco}>
+                Import COCO JSON
               </button>
             </div>
 
             {!datasets.length && (
-              <div className="mt-4 text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-2xl p-4">
-                upload a dataset first to enable imports.
-              </div>
+              <div className={cx("mt-4", UI.mutedBox)}>Upload a dataset first to enable imports.</div>
             )}
           </Section>
         </div>

@@ -10,7 +10,7 @@ export default function PageHeader({
   subtitle,
   projectId,
   right,
-  backToProjects = false
+  backToProjects = false,
 }: {
   title: string
   subtitle?: string
@@ -22,9 +22,7 @@ export default function PageHeader({
     <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="text-2xl md:text-[26px] font-semibold text-slate-900 dark:text-slate-100">
-            {title}
-          </div>
+          <div className="text-2xl md:text-[26px] font-semibold">{title}</div>
 
           {typeof projectId === "number" && projectId > 0 && (
             <Link
@@ -39,7 +37,7 @@ export default function PageHeader({
               title="Go back to project"
             >
               <span aria-hidden>←</span>
-              Back to Project
+              Back to project
             </Link>
           )}
 
@@ -56,23 +54,15 @@ export default function PageHeader({
               title="Go back to projects"
             >
               <span aria-hidden>←</span>
-              Back to Projects
+              Back to projects
             </Link>
           )}
         </div>
 
-        {subtitle ? (
-          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            {subtitle}
-          </div>
-        ) : null}
+        {subtitle ? <div className="mt-1 text-sm muted">{subtitle}</div> : null}
       </div>
 
-      {right ? (
-        <div className="flex items-center gap-2 flex-wrap justify-start md:justify-end">
-          {right}
-        </div>
-      ) : null}
+      {right ? <div className="flex items-center gap-2 flex-wrap justify-start md:justify-end">{right}</div> : null}
     </div>
   )
 }

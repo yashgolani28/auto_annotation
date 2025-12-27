@@ -18,7 +18,7 @@ export default function Login() {
       await login(email, password)
       nav("/")
     } catch (e: any) {
-      const errorMsg = e?.response?.data?.detail || "login failed"
+      const errorMsg = e?.response?.data?.detail || "Login failed."
       setErr(errorMsg)
     } finally {
       setLoading(false)
@@ -26,13 +26,13 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(37,99,235,0.18),transparent_60%),linear-gradient(to_bottom,rgba(239,246,255,1),rgba(255,255,255,1))]">
-      <div className="w-full max-w-md bg-white/80 border border-blue-100/80 rounded-3xl p-6 shadow-sm backdrop-blur">
+    <div className="min-h-screen flex items-center justify-center p-6 bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(37,99,235,0.18),transparent_60%),linear-gradient(to_bottom,rgba(239,246,255,1),rgba(255,255,255,1))] dark:bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(37,99,235,0.22),transparent_60%),linear-gradient(to_bottom,rgba(2,6,23,1),rgba(3,7,18,1))]">
+      <div className="w-full max-w-md app-card p-6">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-white border border-blue-100 shadow-sm flex items-center justify-center overflow-hidden">
+          <div className="w-12 h-12 rounded-2xl bg-white border border-blue-200 shadow-sm flex items-center justify-center overflow-hidden dark:bg-slate-900 dark:border-blue-900/60">
             <img
               src="/essi_logo.jpeg"
-              alt="essi"
+              alt="ESSI"
               className="w-full h-full object-contain p-1"
               onError={(e) => {
                 ;(e.currentTarget as HTMLImageElement).style.display = "none"
@@ -40,45 +40,37 @@ export default function Login() {
             />
           </div>
           <div>
-            <div className="text-xl font-semibold text-slate-900">sign in</div>
-            <div className="text-sm text-slate-500">essi auto annotator</div>
+            <div className="text-xl font-semibold">Sign in</div>
+            <div className="text-sm muted">MLOps</div>
           </div>
         </div>
 
         <form className="mt-6 space-y-3" onSubmit={onSubmit}>
           <div>
-            <label className="text-xs text-blue-600 font-medium">email</label>
-            <input
-              className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="username"
-            />
+            <label className="text-xs font-semibold muted2">Email</label>
+            <input className="field mt-1" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
           </div>
 
           <div>
-            <label className="text-xs text-blue-600 font-medium">password</label>
+            <label className="text-xs font-semibold muted2">Password</label>
             <input
               type="password"
-              className="mt-1 w-full border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+              className="field mt-1"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
             />
           </div>
 
-          {err && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
-              {err}
-            </div>
-          )}
+          {err && <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 dark:bg-red-950/30 dark:text-red-200 dark:border-red-900/40">{err}</div>}
 
-          <button
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white rounded-xl py-2.5 font-medium transition-colors shadow-sm"
-          >
-            {loading ? "logging in..." : "login"}
+          <button disabled={loading} className="w-full btn-primary py-2.5">
+            {loading ? "Signing in…" : "Sign in"}
           </button>
+
+          <div className="text-xs muted mt-2">
+            Tip: Use your admin credentials to access projects, datasets, training, and exports.
+          </div>
         </form>
       </div>
     </div>

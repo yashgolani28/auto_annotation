@@ -18,6 +18,15 @@ function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
 }
 
+const UI = {
+  h1: "text-2xl font-semibold text-slate-900 dark:text-slate-100",
+  sub: "text-sm text-slate-600 dark:text-slate-300 mt-1",
+  card: "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
+  btnSecondary:
+    "rounded-xl px-4 py-2 text-sm font-medium transition-colors border border-blue-200/70 bg-white/80 text-blue-700 hover:bg-blue-50 disabled:opacity-60 disabled:cursor-not-allowed dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
+  badgeBase: "px-2.5 py-1 rounded-full text-xs font-medium border",
+}
+
 export default function Jobs() {
   const { id } = useParams()
   const projectId = Number(id)
@@ -33,7 +42,7 @@ export default function Jobs() {
       const r = await api.get(`/api/projects/${projectId}/jobs`)
       setJobs(r.data || [])
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || "failed to load jobs", "error")
+      showToast(e?.response?.data?.detail || "Failed to load jobs", "error")
     } finally {
       setLoading(false)
     }
@@ -46,69 +55,80 @@ export default function Jobs() {
 
   return (
     <div className="max-w-6xl">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-4">
         <div>
-          <div className="text-2xl font-semibold text-slate-900">jobs</div>
-          <div className="text-sm text-slate-500 mt-1">async tasks for this project • auto runs, exports, training</div>
+          <div className={UI.h1}>Jobs</div>
+          <div className={UI.sub}>Async tasks for this project (auto-annotation, exports, training).</div>
+          <div className="mt-3">
+            <Link to={`/project/${projectId}`} className={UI.btnSecondary}>
+              Back to project
+            </Link>
+          </div>
         </div>
-        <button
-          className={cx(
-            "px-4 py-2 rounded-xl border text-sm font-medium transition-colors",
-            loading ? "bg-blue-100 text-blue-500 border-blue-200 cursor-not-allowed" : "bg-white hover:bg-blue-50 border-blue-200 text-blue-700"
-          )}
-          onClick={refresh}
-          disabled={loading}
-        >
-          {loading ? "loading..." : "refresh"}
+
+        <button className={UI.btnSecondary} onClick={refresh} disabled={loading}>
+          {loading ? "Loading…" : "Refresh"}
         </button>
       </div>
 
       {loading && jobs.length === 0 ? (
-        <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">loading jobs…</div>
+        <div className="text-sm text-blue-800 dark:text-blue-200 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100/70 dark:border-blue-900/50 rounded-2xl p-4">
+          Loading jobs…
+        </div>
       ) : jobs.length === 0 ? (
-        <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">no jobs yet for this project.</div>
+        <div className="text-sm text-blue-800 dark:text-blue-200 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100/70 dark:border-blue-900/50 rounded-2xl p-4">
+          No jobs yet for this project.
+        </div>
       ) : (
-        <div className="bg-white/80 border border-blue-100/70 rounded-3xl overflow-hidden shadow-sm">
+        <div className={cx(UI.card, "overflow-hidden")}>
           <table className="min-w-full text-sm">
-            <thead className="bg-blue-50 border-b border-blue-100">
+            <thead className="bg-blue-50/80 dark:bg-blue-950/30 border-b border-blue-100/70 dark:border-blue-900/50">
               <tr>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">id</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">type</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">status</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">progress</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">message</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">started</th>
-                <th className="text-left px-4 py-3 text-slate-900 font-semibold">actions</th>
+                {["ID", "Type", "Status", "Progress", "Message", "Started", "Actions"].map((h) => (
+                  <th key={h} className="text-left px-4 py-3 text-slate-900 dark:text-slate-100 font-semibold">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {jobs.map((j) => (
-                <tr key={j.id} className="border-b border-blue-50 last:border-b-0 hover:bg-blue-50/50 transition-colors">
-                  <td className="px-4 py-3 font-mono text-xs text-slate-700">#{j.id}</td>
-                  <td className="px-4 py-3 text-slate-900">{j.job_type}</td>
+                <tr
+                  key={j.id}
+                  className="border-b border-blue-50 dark:border-blue-900/30 last:border-b-0 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition-colors"
+                >
+                  <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">#{j.id}</td>
+                  <td className="px-4 py-3 text-slate-900 dark:text-slate-100">{j.job_type}</td>
                   <td className="px-4 py-3">
                     <span
                       className={cx(
-                        "px-2 py-0.5 rounded-full text-xs font-medium",
+                        UI.badgeBase,
                         j.status === "success"
-                          ? "bg-emerald-100 text-emerald-700"
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/50"
                           : j.status === "failed"
-                          ? "bg-red-100 text-red-700"
-                          : "bg-blue-100 text-blue-700"
+                          ? "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/50"
+                          : "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60"
                       )}
                     >
                       {j.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-blue-700 font-medium">{Math.round((j.progress || 0) * 100)}%</td>
-                  <td className="px-4 py-3 max-w-xs truncate text-slate-700" title={j.message}>
+                  <td className="px-4 py-3 text-blue-700 dark:text-blue-200 font-medium">
+                    {Math.round((j.progress || 0) * 100)}%
+                  </td>
+                  <td className="px-4 py-3 max-w-xs truncate text-slate-700 dark:text-slate-300" title={j.message}>
                     {j.message}
                   </td>
-                  <td className="px-4 py-3 text-xs text-slate-600">{new Date(j.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
+                    {new Date(j.created_at).toLocaleString()}
+                  </td>
                   <td className="px-4 py-3 text-xs">
                     {j.job_type === "auto_annotate" && (
-                      <Link to={`/project/${projectId}/view-auto`} className="text-blue-600 hover:text-blue-700 hover:underline font-medium">
-                        view results
+                      <Link
+                        to={`/project/${projectId}/view-auto`}
+                        className="text-blue-700 dark:text-blue-200 hover:underline font-medium"
+                      >
+                        View results
                       </Link>
                     )}
                   </td>

@@ -52,16 +52,11 @@ function Icon({ type }: { type: Toast["type"] }) {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const showToast = useCallback(
-    (message: string, type: "success" | "error" | "info" = "info") => {
-      const id = Math.random().toString(36).substr(2, 9)
-      setToasts((prev) => [...prev, { id, message, type }])
-      setTimeout(() => {
-        setToasts((prev) => prev.filter((t) => t.id !== id))
-      }, 3200)
-    },
-    []
-  )
+  const showToast = useCallback((message: string, type: "success" | "error" | "info" = "info") => {
+    const id = Math.random().toString(36).substr(2, 9)
+    setToasts((prev) => [...prev, { id, message, type }])
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 3200)
+  }, [])
 
   const remove = (id: string) => setToasts((prev) => prev.filter((t) => t.id !== id))
 
@@ -73,18 +68,19 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((toast) => {
           const tone =
             toast.type === "success"
-              ? { ring: "ring-emerald-200/60", border: "border-emerald-200/70", accent: "text-emerald-700" }
+              ? { ring: "ring-emerald-200/60", border: "border-emerald-200/70", accent: "text-emerald-600" }
               : toast.type === "error"
-              ? { ring: "ring-red-200/60", border: "border-red-200/70", accent: "text-red-700" }
-              : { ring: "ring-blue-200/60", border: "border-blue-200/70", accent: "text-blue-700" }
+              ? { ring: "ring-red-200/60", border: "border-red-200/70", accent: "text-red-600" }
+              : { ring: "ring-blue-200/60", border: "border-blue-200/70", accent: "text-blue-600" }
 
           return (
             <div
               key={toast.id}
               className={cx(
                 "min-w-[320px] max-w-[420px]",
-                "rounded-2xl border bg-white/85 backdrop-blur shadow-lg",
-                "ring-1",
+                "rounded-2xl border backdrop-blur shadow-lg ring-1",
+                "bg-white/90 text-slate-900",
+                "dark:bg-slate-950/80 dark:text-slate-100 dark:border-blue-900/50",
                 tone.ring,
                 tone.border
               )}
@@ -95,13 +91,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="flex-1">
-                  <div className="text-sm font-medium text-slate-900 leading-snug">{toast.message}</div>
+                  <div className="text-sm font-medium leading-snug">{toast.message}</div>
                 </div>
 
                 <button
-                  className="text-slate-400 hover:text-slate-700 transition-colors"
+                  className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                   onClick={() => remove(toast.id)}
-                  aria-label="close toast"
+                  aria-label="Close toast"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                     <path

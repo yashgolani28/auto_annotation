@@ -2,6 +2,143 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Let the browser style built-in controls appropriately for both themes */
-:root { color-scheme: light dark; }
-html.dark { color-scheme: dark; }
+/* ---------------------------------------------------------
+   Design tokens (light + dark)
+--------------------------------------------------------- */
+@layer base {
+  :root {
+    --bg0: #eff6ff; /* blue-50 */
+    --bg1: #ffffff;
+    --card: rgba(255, 255, 255, 0.78);
+    --card2: rgba(255, 255, 255, 0.92);
+    --border: rgba(191, 219, 254, 0.75); /* blue-200 */
+    --border2: rgba(147, 197, 253, 0.65); /* blue-300 */
+    --text: #0f172a; /* slate-900 */
+    --muted: rgba(15, 23, 42, 0.65);
+    --muted2: rgba(15, 23, 42, 0.52);
+
+    --primary: #2563eb; /* blue-600 */
+    --primaryHover: #1d4ed8; /* blue-700 */
+    --primarySoft: rgba(37, 99, 235, 0.10);
+    --primarySoft2: rgba(37, 99, 235, 0.16);
+  }
+
+  .dark {
+    --bg0: #020617; /* slate-950 */
+    --bg1: #030712; /* slate-950-ish */
+    --card: rgba(2, 6, 23, 0.55);
+    --card2: rgba(2, 6, 23, 0.72);
+    --border: rgba(30, 58, 138, 0.55); /* blue-900 */
+    --border2: rgba(30, 64, 175, 0.55); /* blue-800/900 */
+    --text: rgba(255, 255, 255, 0.92);
+    --muted: rgba(255, 255, 255, 0.70);
+    --muted2: rgba(255, 255, 255, 0.55);
+
+    --primary: #3b82f6; /* blue-500 */
+    --primaryHover: #60a5fa; /* blue-400 */
+    --primarySoft: rgba(59, 130, 246, 0.10);
+    --primarySoft2: rgba(59, 130, 246, 0.16);
+  }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    color: var(--text);
+    background: var(--bg1);
+  }
+}
+
+/* ---------------------------------------------------------
+   Reusable UI primitives
+--------------------------------------------------------- */
+@layer components {
+  .app-card {
+    @apply rounded-3xl border shadow-sm;
+    border-color: var(--border);
+    background: var(--card);
+    backdrop-filter: blur(10px);
+  }
+
+  .app-card-solid {
+    @apply rounded-3xl border shadow-sm;
+    border-color: var(--border);
+    background: var(--card2);
+  }
+
+  .field {
+    @apply w-full rounded-xl border px-3 py-2 text-sm outline-none transition;
+    border-color: var(--border2);
+    background: rgba(255, 255, 255, 0.92);
+    color: var(--text);
+  }
+  .dark .field {
+    background: rgba(2, 6, 23, 0.55);
+    color: var(--text);
+  }
+  .field:focus {
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.6);
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors;
+  }
+
+  .btn-primary {
+    @apply btn text-white shadow-sm;
+    background: var(--primary);
+  }
+  .btn-primary:hover {
+    background: var(--primaryHover);
+  }
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-outline {
+    @apply btn border;
+    border-color: var(--border2);
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--text);
+  }
+  .dark .btn-outline {
+    background: rgba(2, 6, 23, 0.45);
+    color: var(--text);
+  }
+
+  .btn-ghost {
+    @apply btn;
+    background: transparent;
+    color: var(--text);
+  }
+  .btn-ghost:hover {
+    background: var(--primarySoft);
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold;
+    border-color: var(--border);
+    background: var(--primarySoft);
+    color: var(--primary);
+  }
+  .badge-green {
+    border-color: rgba(16, 185, 129, 0.35);
+    background: rgba(16, 185, 129, 0.12);
+    color: rgb(16, 185, 129);
+  }
+  .badge-red {
+    border-color: rgba(239, 68, 68, 0.35);
+    background: rgba(239, 68, 68, 0.12);
+    color: rgb(239, 68, 68);
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+  .muted2 {
+    color: var(--muted2);
+  }
+}

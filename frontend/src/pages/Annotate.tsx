@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
-import { useParams, useSearchParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Line } from "react-konva"
 import useImage from "use-image"
 import { api, mediaUrl } from "../api"
@@ -28,6 +28,47 @@ function cx(...xs: Array<string | false | undefined | null>) {
 }
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
+
+const UI = {
+  // page
+  h1: "text-2xl font-semibold text-slate-900 dark:text-slate-100",
+  sub: "text-sm text-slate-600 dark:text-slate-300 mt-1",
+
+  // controls
+  select:
+    "border border-blue-200/70 rounded-xl px-3 py-2 bg-white/90 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+  btnPrimary:
+    "bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm disabled:bg-blue-300 disabled:cursor-not-allowed dark:bg-sky-600 dark:hover:bg-sky-500 dark:disabled:bg-slate-700",
+  btnSecondary:
+    "border border-blue-200/70 rounded-xl px-4 py-2 bg-white/80 hover:bg-blue-50 text-blue-700 transition-colors font-medium dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
+  chip:
+    "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium bg-blue-50/80 text-blue-800 border-blue-200/70 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
+
+  // panels
+  card:
+    "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
+  rightCard: "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
+
+  // canvas container (dark always, like train yolo)
+  canvasShell:
+    "rounded-3xl overflow-hidden border border-blue-200/25 bg-slate-950 shadow-lg shadow-blue-950/20 dark:border-blue-900/40",
+
+  // canvas toolbar
+  toolBtnBase: "px-2 py-1 rounded-lg border text-xs transition-colors",
+  toolBtnActive: "bg-sky-700 text-white border-sky-500",
+  toolBtnIdle: "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800",
+
+  // status pills
+  pillBase: "text-xs px-2.5 py-1 rounded-full border font-medium",
+  pillOk:
+    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/50",
+  pillBad: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/50",
+  pillInfo:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
+
+  textarea:
+    "w-full border border-blue-200/70 rounded-xl px-2 py-2 text-xs bg-white/90 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+}
 
 export default function Annotate() {
   const { id } = useParams()
@@ -171,7 +212,7 @@ export default function Annotate() {
       const r = await api.post(`/api/items/${itemId}/lock?annotation_set_id=${asetId}`)
       setLock({ ok: true, expires_at: r.data.expires_at })
     } catch (e: any) {
-      setLock({ ok: false, error: e?.response?.data?.detail || "lock failed" })
+      setLock({ ok: false, error: e?.response?.data?.detail || "Lock failed" })
     }
   }
 
@@ -242,15 +283,15 @@ export default function Annotate() {
       await api.put(`/api/items/${item.id}/annotations?annotation_set_id=${annotationSetId}`, anns)
       setDirty(false)
       await acquireLock(item.id, annotationSetId)
-      showToast("annotations saved", "success")
+      showToast("Annotations saved", "success")
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || "save failed", "error")
+      showToast(e?.response?.data?.detail || "Save failed", "error")
     }
   }
 
   function next() {
     if (dirty) {
-      const ok = confirm("you have unsaved changes. continue without saving?")
+      const ok = confirm("You have unsaved changes. Continue without saving?")
       if (!ok) return
     }
     setIndex((i) => Math.min(items.length - 1, i + 1))
@@ -258,7 +299,7 @@ export default function Annotate() {
 
   function prev() {
     if (dirty) {
-      const ok = confirm("you have unsaved changes. continue without saving?")
+      const ok = confirm("You have unsaved changes. Continue without saving?")
       if (!ok) return
     }
     setIndex((i) => Math.max(0, i - 1))
@@ -475,51 +516,48 @@ export default function Annotate() {
   }
 
   const banner = useMemo(() => {
-    if (!item) return "no items"
-    if (!lock.ok) return `locked: ${lock.error || "unavailable"}`
-    return `lock ok${lock.expires_at ? ` • expires ${new Date(lock.expires_at).toLocaleTimeString()}` : ""}`
+    if (!item) return "No items"
+    if (!lock.ok) return `Locked: ${lock.error || "Unavailable"}`
+    return `Lock ok${lock.expires_at ? ` • Expires ${new Date(lock.expires_at).toLocaleTimeString()}` : ""}`
   }, [item, lock])
 
   return (
     <div className="max-w-[1400px]">
-      <div className="flex items-start justify-between gap-4">
+      {/* header */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <div className="text-2xl font-semibold text-slate-900">annotate</div>
-          <div className="text-sm text-slate-500 mt-1">
-            draw boxes • ctrl+s save • arrows navigate • wheel zoom • space pan
+          <div className={UI.h1}>Annotate</div>
+          <div className={UI.sub}>
+            Draw boxes • Ctrl+S save • Arrow keys navigate • Wheel zoom • Space pan
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to={`/project/${projectId}`} className={UI.btnSecondary}>
+              Back to project
+            </Link>
+            <span className={UI.chip}>Tool: {tool === "draw" ? "Draw" : tool === "polygon" ? "Polygon" : tool === "pan" ? "Pan" : "Select"}</span>
+            {user?.role ? <span className={UI.chip}>Role: {String(user.role).replace(/^\w/, (c) => c.toUpperCase())}</span> : null}
           </div>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <select
-            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={datasetId}
-            onChange={(e) => setDatasetId(Number(e.target.value))}
-          >
+          <select className={UI.select} value={datasetId} onChange={(e) => setDatasetId(Number(e.target.value))}>
             {datasets.map((d) => (
               <option key={d.id} value={d.id}>
-                dataset {d.id}: {d.name}
+                Dataset {d.id}: {d.name}
               </option>
             ))}
           </select>
 
-          <select
-            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={annotationSetId}
-            onChange={(e) => setAnnotationSetId(Number(e.target.value))}
-          >
+          <select className={UI.select} value={annotationSetId} onChange={(e) => setAnnotationSetId(Number(e.target.value))}>
             {annotationSets.map((s) => (
               <option key={s.id} value={s.id}>
-                aset {s.id}: {s.name} ({s.source})
+                Set {s.id}: {s.name} ({s.source})
               </option>
             ))}
           </select>
 
-          <select
-            className="border border-blue-200 rounded-xl px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-            value={activeClassId}
-            onChange={(e) => setActiveClassId(Number(e.target.value))}
-          >
+          <select className={UI.select} value={activeClassId} onChange={(e) => setActiveClassId(Number(e.target.value))}>
             {classes.map((c, i) => (
               <option key={c.id} value={c.id}>
                 {i + 1}. {c.name}
@@ -527,27 +565,31 @@ export default function Annotate() {
             ))}
           </select>
 
-          <button className="border border-blue-200 rounded-xl px-3 py-2 bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={fitToScreen}>
-            fit
+          <button className={UI.btnSecondary} onClick={fitToScreen}>
+            Fit
           </button>
 
-          <button
-            className="bg-blue-600 text-white rounded-xl px-4 py-2 hover:bg-blue-700 transition-colors shadow-sm disabled:bg-blue-300 disabled:cursor-not-allowed"
-            onClick={save}
-            disabled={!lock.ok}
-          >
-            save
+          <button className={UI.btnPrimary} onClick={save} disabled={!lock.ok}>
+            Save
           </button>
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between">
-        <div className={cx("text-sm", lock.ok ? "text-emerald-700" : "text-red-700")}>{banner}</div>
-        <div className="text-sm text-slate-500">
+      {/* status row */}
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className={cx(UI.pillBase, lock.ok ? UI.pillOk : UI.pillBad)}>{banner}</div>
+
+        <div className="text-sm text-slate-600 dark:text-slate-300">
           {item ? (
             <>
-              {index + 1} / {items.length} • {item.file_name} • {item.width}×{item.height} •{" "}
-              <span className={dirty ? "text-orange-700 font-medium" : ""}>{dirty ? "unsaved" : "saved"}</span>
+              <span className={cx(UI.pillBase, UI.pillInfo)}>{index + 1} / {items.length}</span>
+              <span className="ml-2">{item.file_name}</span>
+              <span className="ml-2 text-blue-700 dark:text-blue-200">
+                {item.width}×{item.height}
+              </span>
+              <span className={cx("ml-2", dirty ? "text-orange-700 dark:text-orange-200 font-medium" : "text-emerald-700 dark:text-emerald-200")}>
+                {dirty ? "Unsaved" : "Saved"}
+              </span>
             </>
           ) : (
             "—"
@@ -557,26 +599,21 @@ export default function Annotate() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4 mt-4">
         {/* canvas */}
-        <div className="bg-slate-950 border border-blue-200/25 rounded-3xl overflow-hidden shadow-lg shadow-blue-950/20">
+        <div className={UI.canvasShell}>
           <div className="flex items-center justify-between px-3 py-2 border-b border-blue-200/20">
             <div className="flex items-center gap-2">
-              <div className="text-sm font-medium mr-3 text-slate-50">canvas</div>
+              <div className="text-sm font-medium mr-3 text-slate-50">Canvas</div>
 
               <div className="flex items-center gap-1 text-xs">
                 {[
-                  ["draw", "draw", "b"],
-                  ["polygon", "polygon", "p"],
-                  ["pan", "pan", "space"],
-                  ["select", "select", "v"],
+                  ["draw", "Draw", "B"],
+                  ["polygon", "Polygon", "P"],
+                  ["pan", "Pan", "Space"],
+                  ["select", "Select", "V"],
                 ].map(([key, label, hint]) => (
                   <button
                     key={key}
-                    className={cx(
-                      "px-2 py-1 rounded-lg border text-xs transition-colors",
-                      tool === (key as Tool)
-                        ? "bg-sky-700 text-white border-sky-500"
-                        : "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800"
-                    )}
+                    className={cx(UI.toolBtnBase, tool === (key as Tool) ? UI.toolBtnActive : UI.toolBtnIdle)}
                     onClick={() => setTool(key as Tool)}
                     title={`${label} (${hint})`}
                   >
@@ -587,13 +624,21 @@ export default function Annotate() {
             </div>
 
             <div className="flex items-center gap-3 text-xs text-slate-300">
-              <button className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50" onClick={undo} disabled={!past.length}>
-                undo
+              <button
+                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50"
+                onClick={undo}
+                disabled={!past.length}
+              >
+                Undo
               </button>
-              <button className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50" onClick={redo} disabled={!future.length}>
-                redo
+              <button
+                className="px-2 py-1 rounded-lg border border-slate-700 text-xs hover:bg-slate-800 disabled:opacity-50"
+                onClick={redo}
+                disabled={!future.length}
+              >
+                Redo
               </button>
-              <span className="opacity-80">scale {scale.toFixed(2)}</span>
+              <span className="opacity-80">Scale {scale.toFixed(2)}</span>
             </div>
           </div>
 
@@ -663,17 +708,19 @@ export default function Annotate() {
                   )
                 })}
 
-                {draft && tool === "draw" && <Rect x={draft.x} y={draft.y} width={draft.w} height={draft.h} stroke={"#0ea5e9"} strokeWidth={2} dash={[6, 4]} />}
+                {draft && tool === "draw" && (
+                  <Rect x={draft.x} y={draft.y} width={draft.w} height={draft.h} stroke={"#0ea5e9"} strokeWidth={2} dash={[6, 4]} />
+                )}
                 {polyActive && polyPoints.length > 1 && <Line points={polyPoints.flatMap((p) => [p.x, p.y])} stroke="#0ea5e9" strokeWidth={2} />}
               </Layer>
             </Stage>
           </div>
 
-          {/* thumbnails */}
-          <div className="border-t border-blue-100/40 p-2 bg-white/85">
+          {/* thumbnails (light-like strip for clarity, but themed) */}
+          <div className="border-t border-blue-200/30 p-2 bg-white/90 dark:bg-slate-950/40">
             <div className="flex items-center gap-2 overflow-x-auto">
-              <button className="border border-blue-200 rounded-xl px-3 py-1.5 text-sm bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={prev}>
-                prev
+              <button className={UI.btnSecondary} onClick={prev}>
+                Prev
               </button>
 
               {thumbs.map((t, i) => {
@@ -684,8 +731,10 @@ export default function Annotate() {
                     key={t.id}
                     onClick={() => setIndex(realIdx)}
                     className={cx(
-                      "px-3 py-2 rounded-xl text-sm border whitespace-nowrap transition-colors",
-                      active ? "bg-blue-600 text-white border-blue-600" : "bg-white border-blue-200 hover:bg-blue-50 text-blue-700"
+                      "px-3 py-2 rounded-xl text-sm border whitespace-nowrap transition-colors font-medium",
+                      active
+                        ? "bg-blue-600 text-white border-blue-600 dark:bg-sky-600 dark:border-sky-700/50"
+                        : "bg-white/90 border-blue-200/70 hover:bg-blue-50 text-blue-700 dark:bg-slate-950/40 dark:border-blue-900/60 dark:text-blue-200 dark:hover:bg-blue-950/40"
                     )}
                     title={t.file_name}
                   >
@@ -694,18 +743,20 @@ export default function Annotate() {
                 )
               })}
 
-              <button className="border border-blue-200 rounded-xl px-3 py-1.5 text-sm bg-white hover:bg-blue-50 text-blue-700 transition-colors" onClick={next}>
-                next
+              <button className={UI.btnSecondary} onClick={next}>
+                Next
               </button>
             </div>
           </div>
         </div>
 
         {/* right panel */}
-        <div className="bg-white/80 border border-blue-100/70 rounded-3xl p-4 shadow-sm flex flex-col gap-4">
+        <div className={cx(UI.rightCard, "p-4 flex flex-col gap-4")}>
+          {/* classes */}
           <div>
-            <div className="font-semibold text-slate-900">classes</div>
-            <div className="text-xs text-slate-500 mt-1">click to pick active class • 1..9 hotkeys</div>
+            <div className="font-semibold text-slate-900 dark:text-slate-100">Classes</div>
+            <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">Click to select • 1..9 hotkeys</div>
+
             <div className="mt-3 flex flex-wrap gap-2">
               {classes.map((c, idx) => {
                 const isActive = c.id === activeClassId
@@ -714,25 +765,40 @@ export default function Annotate() {
                     key={c.id}
                     onClick={() => setActiveClassId(c.id)}
                     className={cx(
-                      "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors",
-                      isActive ? "border-blue-600 bg-blue-600 text-white" : "bg-white border-blue-200 text-blue-700 hover:bg-blue-50"
+                      "flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs transition-colors font-medium",
+                      isActive
+                        ? "border-blue-600 bg-blue-600 text-white dark:bg-sky-600 dark:border-sky-700/50"
+                        : "bg-white/90 border-blue-200/70 text-blue-700 hover:bg-blue-50 dark:bg-slate-950/40 dark:border-blue-900/60 dark:text-blue-200 dark:hover:bg-blue-950/40"
                     )}
-                    title={`press ${idx + 1} to select`}
+                    title={`Press ${idx + 1} to select`}
                   >
-                    <span className="w-3 h-3 rounded-full border" style={{ backgroundColor: c.color }} />
+                    <span className="w-3 h-3 rounded-full border border-blue-200/70 dark:border-blue-900/60" style={{ backgroundColor: c.color }} />
                     <span>
                       {idx + 1}. {c.name}
                     </span>
                   </button>
                 )
               })}
-              {!classes.length && <div className="text-xs text-slate-500">no classes defined. add them in the project dashboard.</div>}
+
+              {!classes.length && (
+                <div className="text-xs text-slate-600 dark:text-slate-300">
+                  No classes defined. Add them in the project dashboard.
+                </div>
+              )}
             </div>
           </div>
 
+          {/* boxes */}
           <div className="flex-1 min-h-0">
-            <div className="font-semibold text-slate-900">boxes</div>
-            <div className="text-xs text-slate-500 mt-1">click a row to focus. toggle approved for validation exports.</div>
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="font-semibold text-slate-900 dark:text-slate-100">Boxes</div>
+                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">
+                  Click a row to select. Toggle Approved for export filtering.
+                </div>
+              </div>
+              <span className={UI.chip}>{anns.length} total</span>
+            </div>
 
             <div className="mt-3 space-y-2 max-h-[420px] overflow-auto pr-1">
               {anns.map((a, i) => {
@@ -743,43 +809,42 @@ export default function Annotate() {
                     key={i}
                     className={cx(
                       "border rounded-2xl p-3 cursor-pointer flex flex-col gap-1 transition-colors",
-                      selected ? "border-blue-300 bg-blue-50/60" : "border-blue-200 bg-white hover:bg-blue-50/30"
+                      selected
+                        ? "border-blue-300 bg-blue-50/60 dark:border-blue-800/60 dark:bg-blue-950/30"
+                        : "border-blue-200/70 bg-white/80 hover:bg-blue-50/30 dark:border-blue-900/60 dark:bg-slate-950/30 dark:hover:bg-blue-950/20"
                     )}
                     onClick={() => setSelectedIdx(i)}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <span className="w-2 h-6 rounded-full" style={{ backgroundColor: cls?.color || "#22c55e" }} />
-                        <div className="font-medium text-slate-900">{cls?.name || a.class_id}</div>
+                        <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{cls?.name || a.class_id}</div>
                       </div>
 
                       <button
-                        className={cx(
-                          "text-xs px-2 py-1 rounded-full border transition-colors",
-                          a.approved ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-blue-50 text-blue-700 border-blue-200"
-                        )}
+                        className={cx(UI.pillBase, a.approved ? UI.pillOk : UI.pillInfo)}
                         onClick={(e) => {
                           e.stopPropagation()
                           toggleApproved(i)
                         }}
                       >
-                        {a.approved ? "approved" : "unapproved"}
+                        {a.approved ? "Approved" : "Unapproved"}
                       </button>
                     </div>
 
-                    <div className="text-xs text-slate-600 mt-1 flex flex-wrap gap-2">
-                      <span>x {a.x.toFixed(0)}</span>
-                      <span>y {a.y.toFixed(0)}</span>
-                      <span>w {a.w.toFixed(0)}</span>
-                      <span>h {a.h.toFixed(0)}</span>
-                      {a.confidence != null && <span>conf {(a.confidence * 100).toFixed(0)}%</span>}
+                    <div className="text-xs text-slate-600 dark:text-slate-300 mt-1 flex flex-wrap gap-2">
+                      <span>X {a.x.toFixed(0)}</span>
+                      <span>Y {a.y.toFixed(0)}</span>
+                      <span>W {a.w.toFixed(0)}</span>
+                      <span>H {a.h.toFixed(0)}</span>
+                      {a.confidence != null && <span>Conf {(a.confidence * 100).toFixed(0)}%</span>}
                     </div>
 
                     {selected && (
                       <div className="mt-2">
                         <textarea
-                          className="w-full border border-blue-200 rounded-xl px-2 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
-                          placeholder="comment / QA note…"
+                          className={UI.textarea}
+                          placeholder="Comment / QA note…"
                           value={a.attributes?.note || ""}
                           onChange={(e) => {
                             const value = e.target.value
@@ -797,24 +862,25 @@ export default function Annotate() {
               })}
 
               {!anns.length && (
-                <div className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-2xl p-4">
-                  no boxes yet. drag on canvas to create one.
+                <div className="text-sm text-blue-700 dark:text-blue-200 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-100/70 dark:border-blue-900/50 rounded-2xl p-4">
+                  No boxes yet. Drag on the canvas to create one.
                 </div>
               )}
             </div>
           </div>
 
-          <div className="mt-2 border-t border-blue-100/70 pt-3 text-xs text-slate-600">
-            <div className="font-semibold text-slate-900">hotkeys</div>
+          {/* help */}
+          <div className="mt-2 border-t border-blue-100/70 dark:border-blue-900/50 pt-3 text-xs text-slate-600 dark:text-slate-300">
+            <div className="font-semibold text-slate-900 dark:text-slate-100">Hotkeys</div>
             <ul className="list-disc ml-4 mt-2 space-y-1">
-              <li>ctrl+s save</li>
-              <li>left/right switch image</li>
-              <li>b draw • v select • space pan</li>
-              <li>1..9 select class</li>
-              <li>del delete selected box</li>
-              <li>w a s d nudge selected box (shift bigger)</li>
-              <li>mouse wheel zoom</li>
-              <li>double click to finish polygon</li>
+              <li>Ctrl+S: Save</li>
+              <li>Left/Right: Switch image</li>
+              <li>B: Draw • V: Select • Space: Pan • P: Polygon</li>
+              <li>1..9: Select class</li>
+              <li>Delete: Delete selected box</li>
+              <li>W A S D: Nudge selected box (Shift = larger step)</li>
+              <li>Mouse wheel: Zoom</li>
+              <li>Double click: Finish polygon</li>
             </ul>
           </div>
         </div>
