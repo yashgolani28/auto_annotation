@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams } from "react-router-dom"
-import { api, wsJobUrl } from "../api"
+import { API_BASE, api, wsJobUrl, jobTrainYoloArtifactUrl } from "../api"
 import { useToast } from "../components/Toast"
 import PageHeader from "../components/PageHeader"
 
@@ -9,13 +9,19 @@ type Model = { id: number; name: string; framework: string; class_names: Record<
 type ASet = { id: number; name: string; source: string }
 type Job = { id: number; status: string; progress: number; message: string; updated_at: string }
 
-type TrainResults = {
+type LiveCsv = { columns: string[]; rows: string[][]; job_rel_path?: string | null; updated_at?: string }
+
+type TrainSummary = {
   job_id: number
-  run_name: string
-  csv_rel_path: string
-  headers: string[]
-  rows: Array<Record<string, string>>
-  updated_at_utc?: string | null
+  status: string
+  progress: number
+  message: string
+  trained_model_id?: number | null
+  trained_model_name?: string | null
+  metrics?: Record<string, any> | null
+  downloads?: Array<{ label: string; job_rel_path: string; url: string }>
+  plots?: Array<{ name: string; job_rel_path: string; url: string }>
+  updated_at?: string | null
 }
 
 function cx(...xs: Array<string | false | undefined | null>) {
@@ -28,20 +34,32 @@ const UI = {
     "focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 " +
     "dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:placeholder:text-slate-500 " +
     "dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
-  textarea: "min-h-[90px] resize-y",
-  sectionTitle: "font-semibold text-slate-900 dark:text-slate-100",
+  textarea: "min-h-[96px] resize-y",
+  label: "text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1",
   helper: "text-[11px] text-slate-600 dark:text-slate-300 mt-1",
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <div className="text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">{children}</div>
+  return <div className={UI.label}>{children}</div>
 }
 
-function statusBadge(status: string) {
-  const s = (status || "").toLowerCase()
-  if (s === "success" || s === "done") return "badge badge-green"
-  if (s === "failed" || s === "error") return "badge badge-red"
-  return "badge"
+function pickColumns(all: string[]) {
+  const preferred = [
+    "epoch",
+    "metrics/mAP50(B)",
+    "metrics/mAP50-95(B)",
+    "metrics/precision(B)",
+    "metrics/recall(B)",
+    "train/box_loss",
+    "train/cls_loss",
+    "train/dfl_loss",
+    "val/box_loss",
+    "val/cls_loss",
+    "val/dfl_loss",
+  ]
+  const picked = preferred.filter((c) => all.includes(c))
+  if (picked.length >= 6) return picked.slice(0, 6)
+  return all.slice(0, 6)
 }
 
 export default function TrainYolo() {
@@ -69,7 +87,7 @@ export default function TrainYolo() {
   const [imgsz, setImgsz] = useState(640)
   const [epochs, setEpochs] = useState(50)
   const [batch, setBatch] = useState(16)
-  const [device, setDevice] = useState("0") // "cpu" or "0"
+  const [device, setDevice] = useState("0")
   const [workers, setWorkers] = useState(4)
   const [optimizer, setOptimizer] = useState<"SGD" | "Adam" | "AdamW">("SGD")
   const [approvedOnly, setApprovedOnly] = useState(true)
@@ -80,13 +98,11 @@ export default function TrainYolo() {
 
   const [loading, setLoading] = useState(false)
   const [job, setJob] = useState<Job | null>(null)
+  const [liveCsv, setLiveCsv] = useState<LiveCsv | null>(null)
+  const [summary, setSummary] = useState<TrainSummary | null>(null)
+
   const wsRef = useRef<WebSocket | null>(null)
-
-  // live results.csv tail
-  const [trainResults, setTrainResults] = useState<TrainResults | null>(null)
-  const [trainResultsError, setTrainResultsError] = useState<string>("")
-
-  const isRunning = (job?.status || "").toLowerCase() === "running"
+  const pollRef = useRef<number | null>(null)
 
   async function refresh() {
     try {
@@ -129,6 +145,7 @@ export default function TrainYolo() {
             showToast("Training completed successfully.", "success")
             ws.close()
             wsRef.current = null
+            fetchSummary(jobId)
           } else if (data.status === "failed") {
             showToast(`Training failed: ${data.message || "Unknown error"}`, "error")
             ws.close()
@@ -139,13 +156,54 @@ export default function TrainYolo() {
     } catch {}
   }
 
+  function stopPolling() {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+  }
+
+  function startPolling(jobId: number) {
+    stopPolling()
+    pollRef.current = window.setInterval(() => {
+      fetchJob(jobId)
+      fetchLiveCsv(jobId)
+    }, 2000)
+  }
+
+  async function fetchJob(jobId: number) {
+    try {
+      const r = await api.get(`/api/jobs/${jobId}`)
+      setJob(r.data)
+    } catch {}
+  }
+
+  async function fetchLiveCsv(jobId: number) {
+    try {
+      const r = await api.get(`/api/jobs/${jobId}/train-yolo/live-csv`, { params: { limit: 20 } })
+      setLiveCsv(r.data)
+    } catch {}
+  }
+
+  async function fetchSummary(jobId: number) {
+    try {
+      const r = await api.get(`/api/jobs/${jobId}/train-yolo/summary`)
+      setSummary(r.data)
+    } catch {}
+  }
+
   function parseMeta(): Record<string, any> {
     const raw = (metaJson || "").trim()
     if (!raw) return {}
-    const obj = JSON.parse(raw)
-    if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj
-    showToast('Metadata must be a JSON object (e.g. {"team":"essi"}).', "error")
-    throw new Error("meta not object")
+    try {
+      const obj = JSON.parse(raw)
+      if (obj && typeof obj === "object" && !Array.isArray(obj)) return obj
+      showToast('Metadata must be a JSON object (e.g. {"team":"essi"}).', "error")
+      throw new Error("meta not object")
+    } catch (e: any) {
+      showToast("Invalid metadata JSON. Fix it before starting.", "error")
+      throw e
+    }
   }
 
   async function start() {
@@ -170,9 +228,11 @@ export default function TrainYolo() {
     try {
       meta = parseMeta()
     } catch {
-      showToast("Invalid metadata JSON. Fix it before starting.", "error")
       return
     }
+
+    setSummary(null)
+    setLiveCsv(null)
 
     const payload = {
       dataset_id: datasetId,
@@ -213,10 +273,9 @@ export default function TrainYolo() {
         return
       }
       setJob({ id: jobId, status: "queued", progress: 0, message: "Starting…", updated_at: new Date().toISOString() })
-      setTrainResults(null)
-      setTrainResultsError("")
       showToast("Training job started.", "success")
       connectJobWS(jobId)
+      startPolling(jobId)
     } catch (err: any) {
       showToast(err?.response?.data?.detail || "Failed to start training job.", "error")
     }
@@ -225,63 +284,36 @@ export default function TrainYolo() {
   useEffect(() => {
     return () => {
       if (wsRef.current) wsRef.current.close()
+      stopPolling()
     }
   }, [])
 
-  // poll results.csv tail while running
   useEffect(() => {
-    const jid = job?.id
-    if (!jid || !isRunning) {
-      setTrainResults(null)
-      setTrainResultsError("")
-      return
-    }
+    const s = (job?.status || "").toLowerCase()
+    if (!job?.id) return
+    if (s === "running" || s === "queued") return
+    stopPolling()
+  }, [job?.status, job?.id])
 
-    let alive = true
+  function statusBadge(status: string) {
+    const s = (status || "").toLowerCase()
+    if (s === "success" || s === "done") return "badge badge-green"
+    if (s === "failed" || s === "error") return "badge badge-red"
+    if (s === "running") return "badge badge-blue"
+    return "badge"
+  }
 
-    async function tick() {
-      try {
-        const r = await api.get(`/api/jobs/${jid}/train-results`, { params: { tail: 12 } })
-        if (!alive) return
-        setTrainResults(r.data)
-        setTrainResultsError("")
-      } catch (err: any) {
-        if (!alive) return
-        const code = err?.response?.status
-        if (code === 404) {
-          // results.csv may not exist yet for the first epoch
-          setTrainResults(null)
-          setTrainResultsError("")
-          return
-        }
-        setTrainResultsError(err?.response?.data?.detail || "Failed to fetch live training results.")
-      }
-    }
+  const liveColumns = useMemo(() => pickColumns(liveCsv?.columns || []), [liveCsv?.columns])
+  const liveColIdx = useMemo(() => {
+    const map = new Map<string, number>()
+    ;(liveCsv?.columns || []).forEach((c, i) => map.set(c, i))
+    return map
+  }, [liveCsv?.columns])
 
-    tick()
-    const t = window.setInterval(tick, 2500)
-    return () => {
-      alive = false
-      window.clearInterval(t)
-    }
-  }, [job?.id, isRunning])
-
-  const liveCols = useMemo(() => {
-    const hdr = trainResults?.headers || []
-    const preferred = [
-      "epoch",
-      "train/box_loss",
-      "train/cls_loss",
-      "train/dfl_loss",
-      "metrics/precision(B)",
-      "metrics/recall(B)",
-      "metrics/mAP50(B)",
-      "metrics/mAP50-95(B)",
-      "lr/pg0",
-    ]
-    const picked = hdr.filter((c) => preferred.includes(c))
-    return picked.length ? picked : hdr.slice(0, 8)
-  }, [trainResults?.headers])
+  const isActive = useMemo(() => {
+    const s = (job?.status || "").toLowerCase()
+    return s === "running" || s === "queued"
+  }, [job?.status])
 
   return (
     <div>
@@ -294,12 +326,8 @@ export default function TrainYolo() {
             <Link to={`/project/${projectId}`} className="btn btn-ghost text-sm">
               Back to Project
             </Link>
-            <button
-              className="btn btn-primary text-sm"
-              onClick={start}
-              disabled={loading || !datasetId || !annotationSetId || !baseModelId || isRunning}
-            >
-              {isRunning ? "Running…" : "Start training"}
+            <button className="btn btn-primary text-sm" onClick={start} disabled={loading || !datasetId || !annotationSetId || !baseModelId || isActive}>
+              {isActive ? "Running…" : "Start training"}
             </button>
           </div>
         }
@@ -308,15 +336,7 @@ export default function TrainYolo() {
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Inputs */}
         <div className="app-card p-5">
-          <div className={UI.sectionTitle}>Inputs</div>
-
-          {(datasets.length === 0 || sets.length === 0 || models.length === 0) && (
-            <div className="mt-3 text-sm text-slate-700 dark:text-slate-300">
-              {datasets.length === 0 && <div>• No datasets found for this project.</div>}
-              {sets.length === 0 && <div>• No annotation sets found for this project.</div>}
-              {models.length === 0 && <div>• No base models found. Upload a YOLO .pt under Models first.</div>}
-            </div>
-          )}
+          <div className="font-semibold">Inputs</div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -350,7 +370,7 @@ export default function TrainYolo() {
                 placeholder="e.g. essi_vehicle_v1"
               />
               <div className={UI.helper}>
-                This name will be used when exporting your trained model and benchmark report.
+                This name will appear in <span className="font-semibold">Models</span> after training.
               </div>
             </div>
 
@@ -362,7 +382,9 @@ export default function TrainYolo() {
                 onChange={(e) => setMetaJson(e.target.value)}
                 placeholder='{"site":"J&K","camera":"axis-m1125","notes":"baseline run"}'
               />
-              <div className={UI.helper}>Optional. Stored in DB and included in the trained model meta.</div>
+              <div className={UI.helper}>
+                Optional. This will be embedded into the trained <span className="font-semibold">.pt</span> and stored in DB meta.
+              </div>
             </div>
 
             <div className="md:col-span-2">
@@ -374,11 +396,13 @@ export default function TrainYolo() {
                   </option>
                 ))}
               </select>
-              <div className={UI.helper}>Upload a YOLO detection .pt under Models if this list is empty.</div>
+              <div className={UI.helper}>
+                Tip: Upload a YOLO detection <span className="font-semibold">.pt</span> under Models first.
+              </div>
             </div>
 
             <div className="md:col-span-2 mt-2 border-t border-[color:var(--border)] pt-3">
-              <div className={UI.sectionTitle}>Split</div>
+              <div className="font-semibold">Split</div>
               <div className="mt-2 flex flex-wrap items-center gap-3">
                 <select className={UI.field} value={splitMode} onChange={(e) => setSplitMode(e.target.value as any)}>
                   <option value="keep">Keep existing</option>
@@ -414,7 +438,7 @@ export default function TrainYolo() {
             </div>
 
             <div className="md:col-span-2 mt-2 border-t border-[color:var(--border)] pt-3">
-              <div className={UI.sectionTitle}>Training</div>
+              <div className="font-semibold">Training</div>
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>
                   <FieldLabel>Image size</FieldLabel>
@@ -448,7 +472,7 @@ export default function TrainYolo() {
             </div>
 
             <div className="md:col-span-2 mt-2 border-t border-[color:var(--border)] pt-3">
-              <div className={UI.sectionTitle}>Benchmark</div>
+              <div className="font-semibold">Benchmark</div>
               <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div>
                   <FieldLabel>Split</FieldLabel>
@@ -469,20 +493,21 @@ export default function TrainYolo() {
             </div>
           </div>
 
+          {/* Job card */}
           {job && (
             <div className="mt-4 rounded-2xl p-4 border border-[color:var(--border)] bg-[rgba(59,130,246,0.06)]">
               <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold text-slate-900 dark:text-slate-100">Job #{job.id}</div>
+                <div className="font-semibold">Job #{job.id}</div>
                 <span className={statusBadge(job.status)}>{job.status}</span>
               </div>
 
-              <div className="text-xs text-slate-600 dark:text-slate-300 mt-2">{job.message || "—"}</div>
+              <div className="text-xs opacity-75 mt-2">{job.message || "—"}</div>
 
               <div className="mt-3">
                 <div className="h-2 rounded-full overflow-hidden bg-[rgba(59,130,246,0.18)]">
                   <div className="h-2 bg-blue-600 transition-all" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
                 </div>
-                <div className="text-xs text-slate-600 dark:text-slate-300 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
+                <div className="text-xs opacity-75 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
               </div>
             </div>
           )}
@@ -490,65 +515,145 @@ export default function TrainYolo() {
 
         {/* Outputs */}
         <div className="app-card p-5">
-          <div className={UI.sectionTitle}>Outputs</div>
-          <div className="text-sm text-slate-700 dark:text-slate-300 mt-1">
-            Live training updates come from results.csv, so users can see progress even if logs are quiet.
+          <div className="font-semibold">Outputs</div>
+          <div className="text-sm opacity-80 mt-1">
+            Live training updates come from <span className="font-semibold">results.csv</span>, so users can see progress even if logs are quiet.
           </div>
 
+          {/* Live CSV */}
           <div className="mt-4 rounded-2xl border border-[color:var(--border)] overflow-hidden">
-            <div className="px-4 py-3 flex items-center justify-between gap-3 bg-[rgba(59,130,246,0.06)]">
-              <div className="font-semibold text-sm text-slate-900 dark:text-slate-100">Live training metrics</div>
-              <div className="text-xs text-slate-600 dark:text-slate-300">
-                {trainResults?.updated_at_utc ? `Updated (UTC): ${trainResults.updated_at_utc}` : isRunning ? "Waiting for results…" : "—"}
-              </div>
+            <div className="px-4 py-3 bg-[rgba(59,130,246,0.06)] flex items-center justify-between gap-3">
+              <div className="font-semibold text-sm">Live training metrics</div>
+              {job && <span className={statusBadge(job.status)}>{job.status}</span>}
             </div>
 
             <div className="p-4">
-              {trainResultsError && <div className="text-sm text-red-500 mb-2">{trainResultsError}</div>}
-              {!trainResults && !trainResultsError && (
-                <div className="text-sm text-slate-700 dark:text-slate-300">
-                  {isRunning ? "No results yet. This usually appears after the first epoch." : "Start a training job to see live metrics and downloadable artifacts."}
-                </div>
-              )}
+              {!job && <div className="text-sm opacity-75">Start a training job to see live metrics and downloadable artifacts.</div>}
 
-              {trainResults && (
-                <div className="overflow-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-600 dark:text-slate-300">
-                        {liveCols.map((c) => (
-                          <th key={c} className="py-2 pr-3 font-semibold whitespace-nowrap">
-                            {c}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="text-slate-800 dark:text-slate-100">
-                      {trainResults.rows.map((r, idx) => (
-                        <tr key={idx} className="border-t border-[color:var(--border)]">
-                          {liveCols.map((c) => (
-                            <td key={c} className="py-2 pr-3 whitespace-nowrap">
-                              {(r as any)[c] ?? ""}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  {trainResults.csv_rel_path && (
-                    <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300">
-                      Source: <span className="font-mono">{trainResults.csv_rel_path}</span>
-                    </div>
+              {job && (
+                <div className="text-xs opacity-75 mb-3">
+                  {liveCsv?.updated_at ? (
+                    <>
+                      Last update: <span className="font-semibold">{new Date(liveCsv.updated_at).toLocaleString()}</span>
+                    </>
+                  ) : (
+                    "Waiting for first epoch…"
                   )}
                 </div>
               )}
+
+              {job && liveCsv?.rows?.length ? (
+                <>
+                  <div className="overflow-auto rounded-xl border border-[color:var(--border)]">
+                    <table className="min-w-full text-xs">
+                      <thead className="sticky top-0 bg-[color:var(--card)]">
+                        <tr className="border-b border-[color:var(--border)]">
+                          {liveColumns.map((c) => (
+                            <th key={c} className="text-left px-3 py-2 font-semibold opacity-80 whitespace-nowrap">
+                              {c === "epoch" ? "epoch" : c.split("/").slice(-1)[0]}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {liveCsv.rows.slice(-10).map((row, i) => (
+                          <tr key={i} className={cx("border-b border-[color:var(--border)]", i % 2 === 0 && "bg-[rgba(59,130,246,0.03)]")}>
+                            {liveColumns.map((c) => {
+                              const idx = liveColIdx.get(c) ?? -1
+                              let v = idx >= 0 ? row[idx] : ""
+                              if (c === "epoch" && v !== "") {
+                                const n = Number(v)
+                                if (!Number.isNaN(n)) v = String(n + 1)
+                              }
+                              return (
+                                <td key={c} className="px-3 py-2 whitespace-nowrap">
+                                  {v || "—"}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {job.id && liveCsv.job_rel_path && (
+                    <div className="mt-3 flex items-center gap-2 flex-wrap">
+                      <a className="btn btn-ghost text-sm" href={jobTrainYoloArtifactUrl(job.id, liveCsv.job_rel_path)} target="_blank" rel="noreferrer">
+                        Open full results.csv
+                      </a>
+                    </div>
+                  )}
+                </>
+              ) : job ? (
+                <div className="text-sm opacity-75">Waiting for results.csv… (it usually appears after the first epoch)</div>
+              ) : null}
             </div>
           </div>
 
-          <div className="mt-4 text-sm text-slate-700 dark:text-slate-300">
-            After success, the trained model will appear in your <span className="font-semibold">Models</span> list and can be downloaded from <span className="font-semibold">Exports</span>.
-          </div>
+          {/* Summary */}
+          {summary && (summary.downloads?.length || summary.plots?.length || summary.metrics) ? (
+            <div className="mt-4">
+              <div className="font-semibold text-sm">Training results</div>
+
+              {summary.metrics && (
+                <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                  {[
+                    ["Precision", summary.metrics["precision(B)"] ?? summary.metrics["precision"]],
+                    ["Recall", summary.metrics["recall(B)"] ?? summary.metrics["recall"]],
+                    ["mAP50", summary.metrics["mAP50(B)"] ?? summary.metrics["mAP50"] ?? summary.metrics["map50"]],
+                    ["mAP50-95", summary.metrics["mAP50-95(B)"] ?? summary.metrics["mAP50-95"] ?? summary.metrics["map5095"]],
+                  ].map(([k, v]) => (
+                    <div key={k} className="rounded-2xl border border-[color:var(--border)] p-3 bg-[rgba(59,130,246,0.04)]">
+                      <div className="text-[11px] font-semibold opacity-80">{k}</div>
+                      <div className="text-lg font-semibold mt-1">{typeof v === "number" ? v.toFixed(4) : v ?? "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {summary.downloads?.length ? (
+                <div className="mt-4">
+                  <div className="text-xs font-semibold opacity-80 mb-2">Downloads</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {summary.downloads.map((d) => (
+                      <a key={d.url} className="btn btn-primary text-sm" href={`${API_BASE}${d.url}`} target="_blank" rel="noreferrer">
+                        {d.label}
+                      </a>
+                    ))}
+                    <Link to={`/project/${projectId}/models`} className="btn btn-ghost text-sm">
+                      Open Models
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+
+              {summary.plots?.length ? (
+                <div className="mt-4">
+                  <div className="text-xs font-semibold opacity-80 mb-2">Plots</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {summary.plots.slice(0, 6).map((p) => (
+                      <a
+                        key={p.url}
+                        className="rounded-2xl border border-[color:var(--border)] overflow-hidden bg-[color:var(--card)] hover:opacity-95 transition"
+                        href={`${API_BASE}${p.url}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={p.name}
+                      >
+                        <img src={`${API_BASE}${p.url}`} alt={p.name} className="w-full h-32 object-cover" />
+                        <div className="px-3 py-2 text-xs font-semibold opacity-80 truncate">{p.name}</div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="mt-4 text-sm opacity-80">
+              After success, the trained model will appear in your <span className="font-semibold">Models</span> list, and you can download artifacts here.
+            </div>
+          )}
         </div>
       </div>
     </div>
