@@ -130,11 +130,7 @@ function AnnotationOverlay({
     <div className="relative">
       <SmartItemImage imgRef={imgRef} itemId={item.id} alt={item.file_name} className="w-full h-auto" />
       {imgSize && (
-        <svg
-          className="absolute inset-0 w-full h-full"
-          style={{ pointerEvents: "none" }}
-          viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}
-        >
+        <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }} viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}>
           {annotations.map((ann, idx) => {
             const cls = classById[ann.class_id]
             return (
@@ -188,6 +184,9 @@ export default function ViewAutoAnnotations() {
 
   const [autoDetecting, setAutoDetecting] = useState(false)
   const autoDetectRunId = useRef(0)
+
+  const [approvingAll, setApprovingAll] = useState(false)
+  const [approvingItemId, setApprovingItemId] = useState<number | null>(null)
 
   // Close modal on Escape
   useEffect(() => {
@@ -338,6 +337,67 @@ export default function ViewAutoAnnotations() {
     }
   }
 
+  function _isAutoAnn(a: Ann) {
+    return a.confidence !== null && a.confidence !== undefined
+  }
+
+  async function approveAllAutoForProject() {
+    if (!annotationSetId) return
+    const ok = window.confirm(
+      "Approve all auto-annotations for this annotation set across the entire project?\n\nThis will mark them as approved and is reversible only by editing annotations."
+    )
+    if (!ok) return
+
+    try {
+      setApprovingAll(true)
+      const res = await api.post(
+        `/api/projects/${projectId}/annotation-sets/${annotationSetId}/approve-auto`,
+        {
+          only_auto: true,
+          dataset_id: datasetId || null,
+        }
+      )
+      const updated = Number(res.data?.updated ?? 0)
+      showToast(`Approved ${updated} auto-annotations`, "success")
+      await loadItemsWithAnnotations()
+    } catch (err: any) {
+      console.error("approveAllAutoForProject failed:", err)
+      showToast(err?.response?.data?.detail || "Failed to approve all auto-annotations.", "error")
+    } finally {
+      setApprovingAll(false)
+    }
+  }
+
+  async function approveAutoForItem(item: ItemWithAnnotations) {
+    if (!annotationSetId) return
+    try {
+      setApprovingItemId(item.id)
+      const res = await api.post(`/api/projects/${projectId}/annotation-sets/${annotationSetId}/items/${item.id}/approve`, { only_auto: true })
+      const updated = Number(res.data?.updated ?? 0)
+
+      // update local state immediately for a snappy UI (auto anns only)
+      setItems((prev) =>
+        prev.map((it) => {
+          if (it.id !== item.id) return it
+          const nextAnns = it.annotations.map((a) => (_isAutoAnn(a) ? { ...a, approved: true } : a))
+          return { ...it, annotations: nextAnns }
+        })
+      )
+      setSelectedItem((prev) => {
+        if (!prev || prev.id !== item.id) return prev
+        const nextAnns = prev.annotations.map((a) => (_isAutoAnn(a) ? { ...a, approved: true } : a))
+        return { ...prev, annotations: nextAnns }
+      })
+
+      showToast(`Approved ${updated} annotations for this image`, "success")
+    } catch (err: any) {
+      console.error("approveAutoForItem failed:", err)
+      showToast(err?.response?.data?.detail || "Failed to approve annotations for this image.", "error")
+    } finally {
+      setApprovingItemId(null)
+    }
+  }
+
   useEffect(() => {
     if (!projectId) return
     refresh()
@@ -409,6 +469,15 @@ export default function ViewAutoAnnotations() {
         title="Scan datasets/sets to find where annotations exist"
       >
         {autoDetecting ? "Auto-detecting…" : "Auto-detect"}
+      </button>
+
+      <button
+        className={UI.btnSecondary}
+        disabled={!annotationSetId || approvingAll}
+        onClick={approveAllAutoForProject}
+        title="Approve all auto-annotations in this set across the entire dataset"
+      >
+        {approvingAll ? "Approving…" : "Approve all auto (Dataset)"}
       </button>
 
       {annotationSetId > 0 && (
@@ -538,12 +607,7 @@ export default function ViewAutoAnnotations() {
 
       {selectedItem &&
         createPortal(
-          <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4"
-            onClick={() => setSelectedItem(null)}
-            role="dialog"
-            aria-modal="true"
-          >
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4" onClick={() => setSelectedItem(null)} role="dialog" aria-modal="true">
             <div
               className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-100/70 dark:bg-slate-950 dark:border-blue-900/50"
               onClick={(e) => e.stopPropagation()}
@@ -556,6 +620,15 @@ export default function ViewAutoAnnotations() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <button
+                    className={UI.btnSecondary}
+                    disabled={!annotationSetId || approvingItemId === selectedItem.id}
+                    onClick={() => approveAutoForItem(selectedItem)}
+                    title="Approve auto-annotations for this image"
+                  >
+                    {approvingItemId === selectedItem.id ? "Approving…" : "Approve this image"}
+                  </button>
+
                   <Link to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}&item=${selectedItem.id}`} className={UI.btnPrimary}>
                     Edit in editor
                   </Link>
@@ -588,9 +661,22 @@ export default function ViewAutoAnnotations() {
                             </div>
                           </div>
                         </div>
-                        {ann.confidence !== null && ann.confidence !== undefined && (
-                          <div className="text-sm text-blue-800 dark:text-blue-200 font-medium">{(ann.confidence * 100).toFixed(1)}% confidence</div>
-                        )}
+
+                        <div className="flex items-end flex-col gap-1">
+                          <span
+                            className={cx(
+                              "text-xs px-2 py-0.5 rounded-full border",
+                              ann.approved
+                                ? "border-emerald-200/70 bg-emerald-50/80 text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
+                                : "border-amber-200/70 bg-amber-50/80 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+                            )}
+                          >
+                            {ann.approved ? "Approved" : "Pending"}
+                          </span>
+                          {ann.confidence !== null && ann.confidence !== undefined && (
+                            <div className="text-sm text-blue-800 dark:text-blue-200 font-medium">{(ann.confidence * 100).toFixed(1)}% confidence</div>
+                          )}
+                        </div>
                       </div>
                     )
                   })}

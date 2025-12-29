@@ -5,6 +5,8 @@ import mimetypes
 from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import cast, String
+from sqlalchemy import Integer as SAInteger
 from pathlib import Path
 
 from app.db.session import get_db
@@ -249,7 +251,190 @@ def replace_annotations(
 
 
 # --------------------------------------------------------------------
-# Image file endpoint 
+# Bulk approval endpoints
+# --------------------------------------------------------------------
+
+def _ann_item_id_is_int_col() -> bool:
+    col = Annotation.__table__.c.dataset_item_id
+    try:
+        return (getattr(col.type, "python_type", None) == int) or isinstance(col.type, SAInteger)
+    except Exception:
+        return False
+
+
+@router.post("/projects/{project_id}/annotation-sets/{annotation_set_id}/approve-auto")
+def approve_all_auto_annotations_for_project(
+    project_id: int,
+    annotation_set_id: int,
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Bulk-approve ALL *auto* annotations for a project within a given annotation set.
+
+    Payload (optional):
+      - only_auto: bool (default True)  -> only approve annotations with confidence != NULL
+      - dataset_id: int (optional)      -> restrict to a single dataset
+      - split: str (optional)           -> restrict to train/val/test
+    """
+    from app.core.deps import require_project_access, require_project_role
+
+    require_project_access(project_id, db, user)
+    require_project_role(project_id, ["reviewer", "admin"], db, user)
+
+    aset = (
+        db.query(AnnotationSet)
+        .filter(AnnotationSet.id == annotation_set_id, AnnotationSet.project_id == project_id)
+        .first()
+    )
+    if not aset:
+        raise HTTPException(status_code=404, detail="annotation set not found")
+
+    only_auto = bool((payload or {}).get("only_auto", True))
+    dataset_id = (payload or {}).get("dataset_id", None)
+    split = (payload or {}).get("split", None)
+
+    # dataset items within this project (optionally filtered)
+    item_q = (
+        db.query(DatasetItem.id)
+        .join(Dataset, Dataset.id == DatasetItem.dataset_id)
+        .filter(Dataset.project_id == project_id)
+    )
+    if dataset_id:
+        try:
+            item_q = item_q.filter(DatasetItem.dataset_id == int(dataset_id))
+        except Exception:
+            pass
+    if split:
+        item_q = item_q.filter(DatasetItem.split == str(split))
+
+    is_int_col = _ann_item_id_is_int_col()
+    if is_int_col:
+        item_ids_subq = item_q.subquery()
+    else:
+        # Cast DatasetItem.id (int) -> string is safe (unlike casting Annotation.dataset_item_id -> int)
+        item_ids_subq = (
+            db.query(cast(DatasetItem.id, String))
+            .select_from(DatasetItem)
+            .join(Dataset, Dataset.id == DatasetItem.dataset_id)
+            .filter(Dataset.project_id == project_id)
+        )
+        if dataset_id:
+            try:
+                item_ids_subq = item_ids_subq.filter(DatasetItem.dataset_id == int(dataset_id))
+            except Exception:
+                pass
+        if split:
+            item_ids_subq = item_ids_subq.filter(DatasetItem.split == str(split))
+        item_ids_subq = item_ids_subq.subquery()
+
+    q = db.query(Annotation).filter(
+        Annotation.annotation_set_id == annotation_set_id,
+        Annotation.approved.is_(False),
+    )
+    if only_auto:
+        q = q.filter(Annotation.confidence.isnot(None))
+
+    # restrict to this project's dataset items
+    q = q.filter(Annotation.dataset_item_id.in_(item_ids_subq))
+
+    updated = q.update(
+        {Annotation.approved: True, Annotation.updated_at: datetime.utcnow()},
+        synchronize_session=False,
+    )
+    db.commit()
+
+    # audit
+    db.add(
+        AuditLog(
+            project_id=project_id,
+            user_id=user.id,
+            action="annotation.approve_all_auto",
+            entity_type="annotation_set",
+            entity_id=annotation_set_id,
+            details={
+                "only_auto": only_auto,
+                "dataset_id": dataset_id,
+                "split": split,
+                "updated": int(updated),
+            },
+        )
+    )
+    db.commit()
+
+    return {"updated": int(updated)}
+
+
+@router.post("/projects/{project_id}/annotation-sets/{annotation_set_id}/items/{item_id}/approve")
+def approve_annotations_for_item(
+    project_id: int,
+    annotation_set_id: int,
+    item_id: int,
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Approve annotations for a single image (dataset item) within an annotation set.
+
+    Payload (optional):
+      - only_auto: bool (default True)
+    """
+    from app.core.deps import require_project_access, require_project_role
+
+    require_project_access(project_id, db, user)
+    require_project_role(project_id, ["reviewer", "admin"], db, user)
+
+    aset = (
+        db.query(AnnotationSet)
+        .filter(AnnotationSet.id == annotation_set_id, AnnotationSet.project_id == project_id)
+        .first()
+    )
+    if not aset:
+        raise HTTPException(status_code=404, detail="annotation set not found")
+
+    it = _require_item_access(item_id, db, user)
+    ds = db.query(Dataset).filter(Dataset.id == it.dataset_id).first()
+    if not ds or ds.project_id != project_id:
+        raise HTTPException(status_code=404, detail="item not found in this project")
+
+    only_auto = bool((payload or {}).get("only_auto", True))
+
+    is_int_col = _ann_item_id_is_int_col()
+    item_key = item_id if is_int_col else str(item_id)
+
+    q = db.query(Annotation).filter(
+        Annotation.annotation_set_id == annotation_set_id,
+        Annotation.dataset_item_id == item_key,
+        Annotation.approved.is_(False),
+    )
+    if only_auto:
+        q = q.filter(Annotation.confidence.isnot(None))
+
+    updated = q.update(
+        {Annotation.approved: True, Annotation.updated_at: datetime.utcnow()},
+        synchronize_session=False,
+    )
+    db.commit()
+
+    db.add(
+        AuditLog(
+            project_id=project_id,
+            user_id=user.id,
+            action="annotation.approve_item",
+            entity_type="dataset_item",
+            entity_id=item_id,
+            details={"annotation_set_id": annotation_set_id, "only_auto": only_auto, "updated": int(updated)},
+        )
+    )
+    db.commit()
+
+    return {"updated": int(updated)}
+
+
+# --------------------------------------------------------------------
+# Image file endpoint
 # --------------------------------------------------------------------
 @router.get("/items/{item_id}/file")
 def get_item_file(
