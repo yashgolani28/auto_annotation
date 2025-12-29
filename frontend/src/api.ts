@@ -160,3 +160,11 @@ export function jobTrainYoloArtifactUrl(jobId: number, relPath: string) {
   const enc = encodePathPreserveSlashes(relPath)
   return `${API_BASE}/api/jobs/${jobId}/train-yolo/artifact/${enc}`
 }
+
+export function trainedModelsUrl(projectId: number) {
+  return `/api/projects/${projectId}/trained-models`
+}
+
+export function trainedModelDownloadUrl(projectId: number, modelId: number, kind: "model" | "report") {
+  return `${API_BASE}/api/projects/${projectId}/trained-models/${modelId}/download/${kind}`
+}

@@ -483,6 +483,7 @@ def train_yolo_task(job_id: int):
                 **(base_mw.meta or {}),
                 **(meta or {}),
                 "trained_at": datetime.utcnow().isoformat(),
+                "benchmark_report_rel_path": rel_report_path,
                 "bench": {
                     "precision(B)": prec,
                     "recall(B)": rec,

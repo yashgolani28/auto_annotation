@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { api, API_BASE } from "../api"
 import { useToast } from "../components/Toast"
@@ -6,6 +6,16 @@ import { useToast } from "../components/Toast"
 type Dataset = { id: number; name: string }
 type ASet = { id: number; name: string; source: string }
 type Export = { id: number; fmt: string }
+
+type TrainedModel = {
+  id: number
+  name: string
+  framework: string
+  trained_at?: string | null
+  metrics?: Record<string, any> | null
+  has_model: boolean
+  has_report: boolean
+}
 
 function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
@@ -26,6 +36,17 @@ const UI = {
     "rounded-xl px-4 py-2 font-medium transition-colors border border-blue-200/70 bg-white/80 text-blue-700 hover:bg-blue-50 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
   btnGood:
     "rounded-xl px-6 py-2.5 font-medium text-white transition-colors bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-500",
+  btnIndigo:
+    "rounded-xl px-6 py-2.5 font-medium text-white transition-colors bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500",
+}
+
+function metricPick(metrics: Record<string, any> | null | undefined) {
+  if (!metrics) return null
+  const p = metrics["precision(B)"] ?? metrics["precision"]
+  const r = metrics["recall(B)"] ?? metrics["recall"]
+  const m50 = metrics["mAP50(B)"] ?? metrics["mAP50"] ?? metrics["map50"]
+  const m5095 = metrics["mAP50-95(B)"] ?? metrics["mAP50-95"] ?? metrics["map5095"]
+  return { p, r, m50, m5095 }
 }
 
 export default function ExportPage() {
@@ -33,6 +54,7 @@ export default function ExportPage() {
   const projectId = Number(id)
   const { showToast } = useToast()
 
+  // dataset exports
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [sets, setSets] = useState<ASet[]>([])
   const [datasetId, setDatasetId] = useState<number>(0)
@@ -42,9 +64,20 @@ export default function ExportPage() {
   const [lastExport, setLastExport] = useState<Export | null>(null)
   const [exporting, setExporting] = useState(false)
 
+  // trained models list (new)
+  const [trainedModels, setTrainedModels] = useState<TrainedModel[]>([])
+  const [trainedModelId, setTrainedModelId] = useState<number>(0)
+  const [loadingModels, setLoadingModels] = useState(false)
+
+  // legacy job-id artifacts (kept as advanced)
   const [jobId, setJobId] = useState<number>(0)
   const [artifacts, setArtifacts] = useState<any | null>(null)
   const [loadingArtifacts, setLoadingArtifacts] = useState(false)
+
+  const selectedModel = useMemo(
+    () => trainedModels.find((m) => m.id === trainedModelId) || null,
+    [trainedModels, trainedModelId]
+  )
 
   async function refresh() {
     try {
@@ -61,8 +94,24 @@ export default function ExportPage() {
     }
   }
 
+  async function refreshTrainedModels() {
+    try {
+      setLoadingModels(true)
+      const r = await api.get(`/api/projects/${projectId}/trained-models`)
+      const xs: TrainedModel[] = Array.isArray(r.data) ? r.data : []
+      setTrainedModels(xs)
+      if (!trainedModelId && xs.length) setTrainedModelId(xs[0].id)
+    } catch (err: any) {
+      showToast(err?.response?.data?.detail || "Failed to load trained models", "error")
+    } finally {
+      setLoadingModels(false)
+    }
+  }
+
   useEffect(() => {
-    if (projectId) refresh()
+    if (!projectId) return
+    refresh()
+    refreshTrainedModels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
@@ -111,10 +160,22 @@ export default function ExportPage() {
     }
   }
 
-  function download() {
+  function downloadExport() {
     if (!lastExport) return
     window.open(`${API_BASE}/api/exports/${lastExport.id}/download`, "_blank")
   }
+
+  function downloadTrainedModel() {
+    if (!trainedModelId) return
+    window.open(`${API_BASE}/api/projects/${projectId}/trained-models/${trainedModelId}/download/model`, "_blank")
+  }
+
+  function downloadBenchmarkReport() {
+    if (!trainedModelId) return
+    window.open(`${API_BASE}/api/projects/${projectId}/trained-models/${trainedModelId}/download/report`, "_blank")
+  }
+
+  const picked = metricPick(selectedModel?.metrics)
 
   return (
     <>
@@ -131,6 +192,7 @@ export default function ExportPage() {
           </div>
         </div>
 
+        {/* Dataset exports */}
         <div className={UI.card}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
@@ -188,7 +250,7 @@ export default function ExportPage() {
             </button>
 
             {lastExport && (
-              <button className={UI.btnGood} onClick={download}>
+              <button className={UI.btnGood} onClick={downloadExport}>
                 Download export
               </button>
             )}
@@ -205,48 +267,131 @@ export default function ExportPage() {
         </div>
       </div>
 
+      {/* Training artifacts */}
       <div className={cx("mt-8 max-w-6xl", UI.card)}>
         <div className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">Training artifacts</div>
-        <div className={UI.sub}>Load artifacts generated by a training job.</div>
+        <div className={UI.sub}>Export trained models and benchmark reports by selecting a model (no job ID needed).</div>
 
-        <div className="flex items-center gap-3 mt-4">
-          <input
-            type="number"
-            placeholder="Job ID"
-            className={cx(UI.input, "w-36")}
-            value={jobId || ""}
-            onChange={(e) => setJobId(Number(e.target.value))}
-          />
-          <button
-            className={UI.btnPrimary}
-            disabled={!jobId || loadingArtifacts}
-            onClick={() => loadArtifacts(jobId)}
-          >
-            {loadingArtifacts ? "Loading…" : "Load"}
-          </button>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+          <div className="md:col-span-2">
+            <label className={UI.label}>Trained model</label>
+            <select
+              className={UI.select}
+              value={trainedModelId || ""}
+              onChange={(e) => setTrainedModelId(Number(e.target.value))}
+              disabled={loadingModels}
+            >
+              <option value="" disabled>
+                {loadingModels ? "Loading models…" : trainedModels.length ? "Select a model" : "No trained models yet"}
+              </option>
+              {trainedModels.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} (id {m.id})
+                </option>
+              ))}
+            </select>
 
-        {artifacts && (
-          <div className="flex flex-wrap gap-3 mt-4">
-            {artifacts.model?.available && (
-              <button
-                className={UI.btnGood}
-                onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/model`, "_blank")}
-              >
-                Download model.pt
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <button className={UI.btnSecondary} onClick={refreshTrainedModels} disabled={loadingModels}>
+                {loadingModels ? "Refreshing…" : "Refresh list"}
               </button>
-            )}
 
-            {artifacts.benchmark_report?.available && (
-              <button
-                className="rounded-xl px-6 py-2.5 font-medium text-white transition-colors bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-600 dark:hover:bg-indigo-500"
-                onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/report`, "_blank")}
-              >
+              <button className={UI.btnGood} disabled={!selectedModel?.has_model} onClick={downloadTrainedModel}>
+                Download model
+              </button>
+
+              <button className={UI.btnIndigo} disabled={!selectedModel?.has_report} onClick={downloadBenchmarkReport}>
                 Download benchmark report
               </button>
+            </div>
+
+            {selectedModel && (
+              <div className="mt-4 rounded-2xl border border-blue-100/70 bg-blue-50/60 p-4 dark:border-blue-900/50 dark:bg-blue-950/30">
+                <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{selectedModel.name}</div>
+                <div className="text-xs text-slate-700 dark:text-slate-300 mt-1">
+                  Framework: {selectedModel.framework} • Trained at:{" "}
+                  {selectedModel.trained_at ? new Date(selectedModel.trained_at).toLocaleString() : "—"}
+                </div>
+
+                {picked ? (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3">
+                    {[
+                      ["Precision", picked.p],
+                      ["Recall", picked.r],
+                      ["mAP50", picked.m50],
+                      ["mAP50-95", picked.m5095],
+                    ].map(([k, v]) => (
+                      <div
+                        key={k}
+                        className="rounded-xl border border-blue-100/70 bg-white/70 px-3 py-2 dark:border-blue-900/50 dark:bg-slate-950/40"
+                      >
+                        <div className="text-[11px] font-semibold text-blue-700 dark:text-blue-200">{k}</div>
+                        <div className="text-base font-semibold text-slate-900 dark:text-slate-100 mt-0.5">
+                          {typeof v === "number" ? v.toFixed(4) : v ?? "—"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-700 dark:text-slate-300 mt-3">No benchmark metrics found for this model.</div>
+                )}
+
+                {!selectedModel.has_model && (
+                  <div className="text-xs text-rose-700 dark:text-rose-300 mt-3">
+                    Model file is missing on disk for this entry.
+                  </div>
+                )}
+                {!selectedModel.has_report && (
+                  <div className="text-xs text-amber-700 dark:text-amber-300 mt-2">
+                    Benchmark report is not available for this model.
+                  </div>
+                )}
+              </div>
             )}
           </div>
-        )}
+
+          {/* Advanced legacy */}
+          <div className="md:col-span-1">
+            <details className="rounded-2xl border border-blue-100/70 bg-white/60 p-4 dark:border-blue-900/50 dark:bg-slate-950/30">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Advanced: Load by job ID
+              </summary>
+
+              <div className="text-xs text-slate-700 dark:text-slate-300 mt-2">
+                Kept for backwards compatibility with older workflows.
+              </div>
+
+              <div className="flex items-center gap-3 mt-3">
+                <input
+                  type="number"
+                  placeholder="Job ID"
+                  className={cx(UI.input, "w-36")}
+                  value={jobId || ""}
+                  onChange={(e) => setJobId(Number(e.target.value))}
+                />
+                <button className={UI.btnPrimary} disabled={!jobId || loadingArtifacts} onClick={() => loadArtifacts(jobId)}>
+                  {loadingArtifacts ? "Loading…" : "Load"}
+                </button>
+              </div>
+
+              {artifacts && (
+                <div className="flex flex-wrap gap-3 mt-4">
+                  {artifacts.model?.available && (
+                    <button className={UI.btnGood} onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/model`, "_blank")}>
+                      Download model.pt
+                    </button>
+                  )}
+
+                  {artifacts.benchmark_report?.available && (
+                    <button className={UI.btnIndigo} onClick={() => window.open(`${API_BASE}/api/jobs/${jobId}/artifacts/report`, "_blank")}>
+                      Download benchmark report
+                    </button>
+                  )}
+                </div>
+              )}
+            </details>
+          </div>
+        </div>
       </div>
     </>
   )
