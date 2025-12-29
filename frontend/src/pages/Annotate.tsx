@@ -39,6 +39,30 @@ function _isAbsoluteUrl(u: string) {
   return /^https?:\/\//i.test(u)
 }
 
+function _detailToString(detail: any): string {
+  if (!detail) return ""
+  if (typeof detail === "string") return detail
+  if (Array.isArray(detail)) {
+    // FastAPI 422: [{loc, msg, type}, ...]
+    const msgs = detail.map((d) => d?.msg || d?.detail || "").filter(Boolean)
+    if (msgs.length) return msgs.join("; ")
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return String(detail)
+    }
+  }
+  if (typeof detail === "object") {
+    if (typeof (detail as any).error === "string") return (detail as any).error
+    try {
+      return JSON.stringify(detail)
+    } catch {
+      return String(detail)
+    }
+  }
+  return String(detail)
+}
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 const UI = {
@@ -105,7 +129,6 @@ function useAuthedKonvaImage(itemId: number | null) {
             if (runRef.current !== runId) return
 
             const ct = String(res.headers?.["content-type"] || "")
-            // If backend returns JSON/HTML (e.g., 404 handler or error page) with 200, skip it.
             if (ct && !ct.toLowerCase().startsWith("image/")) {
               lastErr = `Not an image response from ${u} (content-type: ${ct || "unknown"})`
               continue
@@ -115,23 +138,19 @@ function useAuthedKonvaImage(itemId: number | null) {
             const objUrl = URL.createObjectURL(res.data)
             blobUrlRef.current = objUrl
 
-            // Decode test: if it fails, try next candidate
             const img = new Image()
             img.src = objUrl
 
             try {
-              // Prefer decode() if available (more reliable than onload for catching decode errors)
-              if ("decode" in img) {
-                // @ts-ignore
-                await img.decode()
-              } else {
+              // @ts-ignore
+              if ("decode" in img) await img.decode()
+              else {
                 await new Promise<void>((resolve, reject) => {
                   img.onload = () => resolve()
                   img.onerror = () => reject(new Error("decode failed"))
                 })
               }
             } catch {
-              // revoke and continue to next candidate
               URL.revokeObjectURL(objUrl)
               if (blobUrlRef.current === objUrl) blobUrlRef.current = null
               lastErr = `Failed to decode image from ${u}`
@@ -143,7 +162,7 @@ function useAuthedKonvaImage(itemId: number | null) {
             return
           } catch (e: any) {
             const status = e?.response?.status
-            const detail = e?.response?.data?.detail
+            const detail = _detailToString(e?.response?.data?.detail || e?.response?.data)
             lastErr = `Fetch failed from ${u}${status ? ` (HTTP ${status})` : ""}${detail ? `: ${detail}` : ""}`
             continue
           }
@@ -167,40 +186,6 @@ function useAuthedKonvaImage(itemId: number | null) {
   }, [itemId, candidates.join("|")])
 
   return { image, loading, error }
-}
-
-function useAuthedImage(url: string | null) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    let current: string | null = null
-
-    async function run() {
-      if (!url) {
-        setBlobUrl(null)
-        return
-      }
-      try {
-        const r = await api.get(url, { responseType: "blob" })
-        if (!alive) return
-        current = URL.createObjectURL(r.data)
-        setBlobUrl(current)
-      } catch {
-        if (!alive) return
-        setBlobUrl(null)
-      }
-    }
-
-    run()
-
-    return () => {
-      alive = false
-      if (current) URL.revokeObjectURL(current)
-    }
-  }, [url])
-
-  return blobUrl
 }
 
 export default function Annotate() {
@@ -248,7 +233,8 @@ export default function Annotate() {
   const [polyPoints, setPolyPoints] = useState<{ x: number; y: number }[]>([])
   const [polyActive, setPolyActive] = useState(false)
 
-  // ✅ auth-safe image
+  const canEdit = lock.ok || user?.role === "admin"
+
   const { image, loading: imageLoading, error: imageError } = useAuthedKonvaImage(item ? item.id : null)
 
   const thumbStart = Math.max(0, index - 8)
@@ -343,7 +329,9 @@ export default function Annotate() {
         setLock({ ok: false, error: "Lock expired" })
       }, 1000 * 60 * 5)
     } catch (e: any) {
-      setLock({ ok: false, error: e?.response?.data?.detail || "Lock unavailable" })
+      const status = e?.response?.status
+      const detail = _detailToString(e?.response?.data?.detail || e?.response?.data)
+      setLock({ ok: false, error: `${status ? `HTTP ${status}: ` : ""}${detail || "Lock unavailable"}` })
     }
   }
 
@@ -417,7 +405,7 @@ export default function Annotate() {
       await acquireLock(item.id, annotationSetId)
       showToast("Annotations saved", "success")
     } catch (e: any) {
-      showToast(e?.response?.data?.detail || "Save failed", "error")
+      showToast(_detailToString(e?.response?.data?.detail || e?.response?.data) || "Save failed", "error")
     }
   }
 
@@ -530,7 +518,7 @@ export default function Annotate() {
   }
 
   function startDraw(e: any) {
-    if (!item || !lock.ok) return
+    if (!item || !canEdit) return
     const stage = stageRef.current
     const p = stage.getPointerPosition()
     const x = normToStageX(p.x)
@@ -580,7 +568,7 @@ export default function Annotate() {
   }
 
   function addPolygonPoint(e: any) {
-    if (!item || !lock.ok) return
+    if (!item || !canEdit) return
     const stage = stageRef.current
     const p = stage.getPointerPosition()
     const x = normToStageX(p.x)
@@ -590,7 +578,7 @@ export default function Annotate() {
   }
 
   function finishPolygon() {
-    if (!item || !lock.ok || polyPoints.length < 3) {
+    if (!item || !canEdit || polyPoints.length < 3) {
       setPolyPoints([])
       setPolyActive(false)
       return
@@ -605,7 +593,10 @@ export default function Annotate() {
     const h = Math.max(1, maxY - minY)
     const flattened: number[] = []
     polyPoints.forEach((p) => flattened.push(p.x, p.y))
-    applyChange((arr) => [...arr, { class_id: activeClassId, x: minX, y: minY, w, h, approved: false, attributes: { polygon: flattened } }])
+    applyChange((arr) => [
+      ...arr,
+      { class_id: activeClassId, x: minX, y: minY, w, h, approved: false, attributes: { polygon: flattened } },
+    ])
     setPolyPoints([])
     setPolyActive(false)
   }
@@ -624,9 +615,10 @@ export default function Annotate() {
 
   const banner = useMemo(() => {
     if (!item) return "No items"
-    if (!lock.ok) return `Locked: ${lock.error || "Unavailable"}`
-    return `Lock ok${lock.expires_at ? ` • Expires ${new Date(lock.expires_at).toLocaleTimeString()}` : ""}`
-  }, [item, lock])
+    if (lock.ok) return `Lock ok${lock.expires_at ? ` • Expires ${new Date(lock.expires_at).toLocaleTimeString()}` : ""}`
+    if (user?.role === "admin") return `Lock unavailable • Admin override${lock.error ? ` • ${lock.error}` : ""}`
+    return `Locked: ${lock.error || "Unavailable"}`
+  }, [item, lock, user?.role])
 
   return (
     <div className="max-w-[1400px]">
@@ -678,7 +670,7 @@ export default function Annotate() {
             Fit
           </button>
 
-          <button className={UI.btnPrimary} onClick={() => void save()} disabled={!lock.ok}>
+          <button className={UI.btnPrimary} onClick={() => void save()} disabled={!canEdit}>
             Save
           </button>
         </div>
@@ -686,14 +678,18 @@ export default function Annotate() {
 
       {/* status row */}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className={cx(UI.pillBase, lock.ok ? UI.pillOk : UI.pillBad)}>{banner}</div>
+        <div className={cx(UI.pillBase, canEdit ? UI.pillOk : UI.pillBad)}>{banner}</div>
 
         <div className="text-sm text-slate-600 dark:text-slate-300">
           {item ? (
             <>
-              <span className={cx(UI.pillBase, UI.pillInfo)}>{index + 1} / {items.length}</span>
+              <span className={cx(UI.pillBase, UI.pillInfo)}>
+                {index + 1} / {items.length}
+              </span>
               <span className="ml-2">{item.file_name}</span>
-              <span className="ml-2 text-blue-700 dark:text-blue-200">{item.width}×{item.height}</span>
+              <span className="ml-2 text-blue-700 dark:text-blue-200">
+                {item.width}×{item.height}
+              </span>
               <span className={cx("ml-2", dirty ? "text-orange-700 dark:text-orange-200 font-medium" : "text-emerald-700 dark:text-emerald-200")}>
                 {dirty ? "Unsaved" : "Saved"}
               </span>
@@ -764,10 +760,25 @@ export default function Annotate() {
               onDragEnd={(e) => setPos({ x: e.target.x(), y: e.target.y() })}
               onWheel={onWheel}
               onMouseDown={(e) => {
-                const clickedOnEmpty = e.target === e.target.getStage()
-                if (!clickedOnEmpty) return
-                if (tool === "draw") startDraw(e)
-                else if (tool === "polygon") addPolygonPoint(e)
+                const clsName = e?.target?.getClassName?.() || ""
+                const isAnnoShape = clsName === "Rect" || clsName === "Text" || clsName === "Line" || clsName === "Group"
+
+                if (tool === "draw") {
+                  if (isAnnoShape) return
+                  startDraw(e)
+                  return
+                }
+
+                if (tool === "polygon") {
+                  if (isAnnoShape) return
+                  addPolygonPoint(e)
+                  return
+                }
+
+                if (tool === "select") {
+                  // clicking image/background clears selection
+                  if (clsName === "Stage" || clsName === "Image") setSelectedIdx(-1)
+                }
               }}
               onMouseMove={(e) => {
                 if (tool === "draw") updateDraw(e)
@@ -779,14 +790,7 @@ export default function Annotate() {
             >
               <Layer>
                 {image && item && (
-                  <KonvaImage
-                    image={image}
-                    x={0}
-                    y={0}
-                    width={item.width}
-                    height={item.height}
-                    crossOrigin="anonymous"
-                  />
+                  <KonvaImage image={image} x={0} y={0} width={item.width} height={item.height} crossOrigin="anonymous" />
                 )}
               </Layer>
 
@@ -807,7 +811,7 @@ export default function Annotate() {
                         stroke={stroke}
                         strokeWidth={selected ? 3 : 2}
                         dash={a.approved ? [] : [6, 4]}
-                        draggable={lock.ok && tool !== "pan"}
+                        draggable={canEdit && tool === "select"}
                         onClick={() => setSelectedIdx(i)}
                         onTap={() => setSelectedIdx(i)}
                         onDragEnd={(e) => onBoxDrag(i, e)}
@@ -867,7 +871,7 @@ export default function Annotate() {
             </div>
           </div>
         </div>
-
+        
         {/* right panel */}
         <div className={cx(UI.rightCard, "p-4 flex flex-col gap-4")}>
           {/* classes */}

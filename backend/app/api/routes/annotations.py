@@ -1,13 +1,23 @@
 from __future__ import annotations
+
 from datetime import datetime, timedelta
 import mimetypes
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 
 from app.db.session import get_db
-from app.models.models import DatasetItem, Annotation, AnnotationSet, LabelClass, Dataset, AnnotationLock, AuditLog, User
+from app.models.models import (
+    DatasetItem,
+    Annotation,
+    AnnotationSet,
+    LabelClass,
+    Dataset,
+    AnnotationLock,
+    AuditLog,
+    User,
+)
 from app.schemas.schemas import AnnotationOut, AnnotationIn
 from app.services.annotations import get_or_create_default_annotation_set
 from app.core.deps import get_current_user
@@ -16,6 +26,7 @@ router = APIRouter()
 
 LOCK_MINUTES = 10
 
+
 def _require_item_access(item_id: int, db: Session, user: User) -> DatasetItem:
     it = db.query(DatasetItem).filter(DatasetItem.id == item_id).first()
     if not it:
@@ -23,29 +34,59 @@ def _require_item_access(item_id: int, db: Session, user: User) -> DatasetItem:
     ds = db.query(Dataset).filter(Dataset.id == it.dataset_id).first()
     if not ds:
         raise HTTPException(status_code=404, detail="dataset not found")
-    # project membership checked via project_id
     from app.core.deps import require_project_access
+
     require_project_access(ds.project_id, db, user)
     return it
+
+
+def _pick_aset_id(payload: dict, q_aset: int | None) -> int:
+    try:
+        v = payload.get("annotation_set_id") or q_aset
+        return int(v or 0)
+    except Exception:
+        return 0
+
+
+def _pick_ttl_seconds(payload: dict) -> int:
+    # frontend sends ttl_seconds; default to LOCK_MINUTES if not present
+    try:
+        ttl = int(payload.get("ttl_seconds") or (LOCK_MINUTES * 60))
+    except Exception:
+        ttl = LOCK_MINUTES * 60
+    # clamp to sane range
+    return max(30, min(3600, ttl))
+
 
 @router.post("/items/{item_id}/lock")
 def acquire_lock(
     item_id: int,
-    annotation_set_id: int,
+    payload: dict = Body(default={}),
+    annotation_set_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """
+    Accepts BOTH:
+      - JSON body: { "annotation_set_id": 1, "ttl_seconds": 300, ... }
+      - or query:  /items/{id}/lock?annotation_set_id=1
+    """
     it = _require_item_access(item_id, db, user)
+
+    aset_id = _pick_aset_id(payload or {}, annotation_set_id)
+    if aset_id <= 0:
+        raise HTTPException(status_code=400, detail="annotation_set_id required")
+
     now = datetime.utcnow()
 
-    # clean expired
-    db.query(AnnotationLock).filter(AnnotationLock.expires_at < now).delete()
+    # clean expired locks
+    db.query(AnnotationLock).filter(AnnotationLock.expires_at < now).delete(synchronize_session=False)
     db.commit()
 
     lock = (
         db.query(AnnotationLock)
         .filter(
-            AnnotationLock.annotation_set_id == annotation_set_id,
+            AnnotationLock.annotation_set_id == aset_id,
             AnnotationLock.dataset_item_id == it.id,
         )
         .first()
@@ -54,10 +95,12 @@ def acquire_lock(
     if lock and lock.locked_by_user_id != user.id:
         raise HTTPException(status_code=409, detail="locked by another user")
 
-    exp = now + timedelta(minutes=LOCK_MINUTES)
+    ttl_seconds = _pick_ttl_seconds(payload or {})
+    exp = now + timedelta(seconds=ttl_seconds)
+
     if not lock:
         lock = AnnotationLock(
-            annotation_set_id=annotation_set_id,
+            annotation_set_id=aset_id,
             dataset_item_id=it.id,
             locked_by_user_id=user.id,
             locked_at=now,
@@ -70,7 +113,34 @@ def acquire_lock(
         db.add(lock)
 
     db.commit()
-    return {"status": "ok", "expires_at": lock.expires_at.isoformat()}
+    return {"ok": True, "expires_at": lock.expires_at.isoformat()}
+
+
+@router.post("/items/{item_id}/unlock")
+def release_lock(
+    item_id: int,
+    payload: dict = Body(default={}),
+    annotation_set_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Optional but nice: frontend calls /unlock on cleanup.
+    """
+    _require_item_access(item_id, db, user)
+
+    aset_id = _pick_aset_id(payload or {}, annotation_set_id)
+    if aset_id <= 0:
+        raise HTTPException(status_code=400, detail="annotation_set_id required")
+
+    db.query(AnnotationLock).filter(
+        AnnotationLock.annotation_set_id == aset_id,
+        AnnotationLock.dataset_item_id == item_id,
+        AnnotationLock.locked_by_user_id == user.id,
+    ).delete(synchronize_session=False)
+    db.commit()
+    return {"ok": True}
+
 
 @router.get("/items/{item_id}/annotations", response_model=list[AnnotationOut])
 def get_annotations(
@@ -94,6 +164,7 @@ def get_annotations(
         )
         .all()
     )
+
 
 @router.put("/items/{item_id}/annotations", response_model=list[AnnotationOut])
 def replace_annotations(
@@ -131,7 +202,7 @@ def replace_annotations(
     db.query(Annotation).filter(
         Annotation.dataset_item_id == item_id,
         Annotation.annotation_set_id == annotation_set_id,
-    ).delete()
+    ).delete(synchronize_session=False)
 
     for a in payload:
         if not db.query(LabelClass).filter(LabelClass.id == a.class_id).first():
@@ -176,8 +247,9 @@ def replace_annotations(
         .all()
     )
 
+
 # --------------------------------------------------------------------
-# ✅ ADD THIS: image file endpoint expected by frontend
+# Image file endpoint 
 # --------------------------------------------------------------------
 @router.get("/items/{item_id}/file")
 def get_item_file(
@@ -185,13 +257,8 @@ def get_item_file(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """
-    Frontend expects: GET /api/items/{item_id}/file
-    This is an alias for the media route, but protected under /api with auth.
-    """
     it = _require_item_access(item_id, db, user)
 
-    # Reuse the robust resolver from media.py
     from app.api.routes.media import _candidate_relpaths, _safe_storage_path, _find_in_storage
     from app.core.config import settings
 
@@ -207,7 +274,6 @@ def get_item_file(
             mt = mimetypes.guess_type(str(p))[0] or "application/octet-stream"
             return FileResponse(str(p), media_type=mt, filename=Path(p).name)
 
-    # Fallback search by filename inside storage_dir
     dataset_id = getattr(it, "dataset_id", None)
     file_name = getattr(it, "file_name", None)
     if file_name:
