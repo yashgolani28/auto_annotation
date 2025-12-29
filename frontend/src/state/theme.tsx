@@ -23,7 +23,7 @@ function applyThemeClass(theme: Theme) {
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     try {
-      const saved = localStorage.getItem("mlops_theme") as Theme | null
+      const saved = localStorage.getItem("MLOps_theme") as Theme | null
       if (saved === "light" || saved === "dark") return saved
     } catch {}
     return getSystemTheme()
@@ -32,7 +32,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const setTheme = (t: Theme) => {
     setThemeState(t)
     try {
-      localStorage.setItem("mlops_theme", t)
+      localStorage.setItem("MLOps_theme", t)
     } catch {}
   }
 

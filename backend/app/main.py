@@ -20,7 +20,7 @@ from app.services.storage import ensure_dirs
 
 limiter = Limiter(key_func=get_remote_address)
 
-app = FastAPI(title="Auto Annotator", version="2.0.0")
+app = FastAPI(title="MLOps", version="2.0.0")
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 

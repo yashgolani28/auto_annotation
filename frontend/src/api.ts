@@ -138,3 +138,25 @@ export function logoUrlCandidates() {
   const xs = [`${API_BASE}/media/logo`, `${API_BASE}/api/media/logo`]
   return Array.from(new Set(xs))
 }
+
+export function jobTrainYoloLiveCsvUrl(jobId: number, limit: number = 15) {
+  return `${API_BASE}/api/jobs/${jobId}/train-yolo/live-csv?limit=${encodeURIComponent(String(limit))}`
+}
+
+export function jobTrainYoloSummaryUrl(jobId: number) {
+  return `${API_BASE}/api/jobs/${jobId}/train-yolo/summary`
+}
+
+function encodePathPreserveSlashes(p: string) {
+  const cleaned = (p || "").replace(/^\/+/, "").replace(/\\/g, "/")
+  return cleaned
+    .split("/")
+    .filter(Boolean)
+    .map((seg) => encodeURIComponent(seg))
+    .join("/")
+}
+
+export function jobTrainYoloArtifactUrl(jobId: number, relPath: string) {
+  const enc = encodePathPreserveSlashes(relPath)
+  return `${API_BASE}/api/jobs/${jobId}/train-yolo/artifact/${enc}`
+}

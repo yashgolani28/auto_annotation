@@ -1,10 +1,10 @@
-# Auto Annotator
+# MLOps
 
 A self-hosted annotation and training platform for object detection datasets with YOLO auto-annotation, web-based validation, model fine-tuning, and export to YOLO/COCO formats.
 
 ## Overview
 
-Auto Annotator streamlines the full lifecycle of object detection datasets:
+MLOps streamlines the full lifecycle of object detection datasets:
 
 * automated labeling using pretrained YOLO models
 * manual validation and correction in a browser-based editor
@@ -56,7 +56,7 @@ API Docs:  http://localhost:8000/docs
 
 ## GPU / CUDA Support (Important)
 
-Auto Annotator supports **GPU-accelerated inference and training** inside Docker.
+MLOps supports **GPU-accelerated inference and training** inside Docker.
 
 ### What’s required
 
