@@ -70,7 +70,6 @@ const UI = {
     "w-full border border-blue-200/70 rounded-xl px-2 py-2 text-xs bg-white/90 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
 }
 
-// ✅ AUTH-SAFE Konva image loader (works for protected media routes)
 function useAuthedKonvaImage(itemId: number | null) {
   const candidates = useMemo(() => (itemId ? mediaUrlCandidates(itemId) : []), [itemId])
 
@@ -91,49 +90,74 @@ function useAuthedKonvaImage(itemId: number | null) {
       if (!itemId || candidates.length === 0) return
 
       setLoading(true)
+
       try {
-        // try candidates as AUTHED blob
+        let lastErr: string | null = null
+
         for (const u of candidates) {
           if (runRef.current !== runId) return
+
           try {
             const res = _isAbsoluteUrl(u)
-              ? await api.get(u, { responseType: "blob" }) // absolute URL: do not strip
-              : await api.get(_pathFromUrl(u), { responseType: "blob" }) // relative: ok
+              ? await api.get(u, { responseType: "blob" })
+              : await api.get(_pathFromUrl(u), { responseType: "blob" })
 
             if (runRef.current !== runId) return
+
+            const ct = String(res.headers?.["content-type"] || "")
+            // If backend returns JSON/HTML (e.g., 404 handler or error page) with 200, skip it.
+            if (ct && !ct.toLowerCase().startsWith("image/")) {
+              lastErr = `Not an image response from ${u} (content-type: ${ct || "unknown"})`
+              continue
+            }
 
             if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
             const objUrl = URL.createObjectURL(res.data)
             blobUrlRef.current = objUrl
 
+            // Decode test: if it fails, try next candidate
             const img = new Image()
-            img.onload = () => {
-              if (runRef.current !== runId) return
-              setImage(img)
-              setLoading(false)
-            }
-            img.onerror = () => {
-              // continue loop
-            }
             img.src = objUrl
 
-            // wait for onload
+            try {
+              // Prefer decode() if available (more reliable than onload for catching decode errors)
+              if ("decode" in img) {
+                // @ts-ignore
+                await img.decode()
+              } else {
+                await new Promise<void>((resolve, reject) => {
+                  img.onload = () => resolve()
+                  img.onerror = () => reject(new Error("decode failed"))
+                })
+              }
+            } catch {
+              // revoke and continue to next candidate
+              URL.revokeObjectURL(objUrl)
+              if (blobUrlRef.current === objUrl) blobUrlRef.current = null
+              lastErr = `Failed to decode image from ${u}`
+              continue
+            }
+
+            if (runRef.current !== runId) return
+            setImage(img)
             return
-          } catch {
-            // try next candidate
+          } catch (e: any) {
+            const status = e?.response?.status
+            const detail = e?.response?.data?.detail
+            lastErr = `Fetch failed from ${u}${status ? ` (HTTP ${status})` : ""}${detail ? `: ${detail}` : ""}`
+            continue
           }
         }
 
-        setError("Failed to load image (auth or media path issue).")
+        setError(lastErr || "Failed to load image (media path/auth issue).")
       } finally {
-        setLoading(false)
+        if (runRef.current === runId) setLoading(false)
       }
     }
 
     void load()
 
     return () => {
-      // cancel + cleanup
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current)
         blobUrlRef.current = null
@@ -329,7 +353,7 @@ export default function Annotate() {
         (user as any)?.email ||
         (user as any)?.username ||
         String((user as any)?.id || "local")
-        
+
       await api.post(`/api/items/${itemId}/unlock`, {
         annotation_set_id: asetId,
         owner,

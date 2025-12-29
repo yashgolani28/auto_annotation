@@ -11,15 +11,34 @@ def init_db():
     # bootstrap admin if none exists
     db = SessionLocal()
     try:
-        exists = db.query(User).filter(User.email == settings.bootstrap_admin_email).first()
-        if not exists:
+        email = (settings.bootstrap_admin_email or "").strip().lower()
+        if not email:
+            return
+
+        u = db.query(User).filter(User.email == email).first()
+        if not u:
             u = User(
-                email=settings.bootstrap_admin_email,
+                email=email,
                 name="Admin",
                 password_hash=hash_password(settings.bootstrap_admin_password),
                 role="admin",
                 is_active=True,
             )
+            db.add(u)
+            db.commit()
+            return
+
+        # If the user exists already but isn't admin, promote it.
+        changed = False
+        if u.role != "admin":
+            u.role = "admin"
+            changed = True
+        if not u.is_active:
+            u.is_active = True
+            changed = True
+
+        # NOTE: We do NOT overwrite password if user already exists.
+        if changed:
             db.add(u)
             db.commit()
     finally:

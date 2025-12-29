@@ -22,22 +22,31 @@ def _safe_storage_path(p: str) -> Path:
     Supports:
       - relative paths (preferred)
       - absolute paths ONLY if they still live under storage_dir
-    Blocks path traversal.
+
+    DEV/LEGACY FIX:
+      - if the DB contains an absolute path outside storage_dir but the file exists,
+        allow it as a fallback (common when older rows stored C:\\... directly).
+    Blocks path traversal for relative paths.
     """
     base = Path(settings.storage_dir).resolve()
     raw = (p or "").strip()
     if not raw:
         raise HTTPException(status_code=400, detail="empty item path")
 
-    # Normalize separators for checks
     norm = raw.replace("\\", "/")
 
     # Absolute path handling (Windows or POSIX)
     if norm.startswith("/") or _is_windows_abs(norm):
         cand = Path(raw).resolve()
-        if cand != base and base not in cand.parents:
-            raise HTTPException(status_code=400, detail="invalid item path")
-        return cand
+
+        # preferred: absolute under storage_dir
+        if cand == base or base in cand.parents:
+            return cand
+
+        if cand.exists() and cand.is_file():
+            return cand
+
+        raise HTTPException(status_code=400, detail="invalid item path")
 
     # Relative path handling
     rel = norm.lstrip("/")

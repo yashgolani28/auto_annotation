@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 from slowapi import Limiter
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
@@ -191,11 +192,29 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content={"detail": exc.errors()}
     )
 
+def _init_db_with_retry(retries: int = 30, delay_seconds: float = 1.0) -> None:
+    """
+    Postgres may still be "starting up" when backend starts.
+    Retry init_db() instead of crashing the app.
+    """
+    last_err: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            init_db()
+            print("[DB] init ok")
+            return
+        except OperationalError as e:
+            last_err = e
+            print(
+                f"[DB] not ready yet (attempt {attempt}/{retries}) - retrying in {delay_seconds}s"
+            )
+            time.sleep(delay_seconds)
+    raise last_err  # type: ignore[misc]
 
 @app.on_event("startup")
 def _startup():
     ensure_dirs()
-    init_db()
+    _init_db_with_retry()
 
 
 app.include_router(api_router)
