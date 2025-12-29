@@ -62,6 +62,21 @@ function pickColumns(all: string[]) {
   return all.slice(0, 6)
 }
 
+function normalizeUrl(u: string) {
+  if (!u) return ""
+  if (u.startsWith("http://") || u.startsWith("https://")) return u
+  if (u.startsWith("/")) return u
+  return `/${u}`
+}
+
+function guessImageMime(name: string) {
+  const n = (name || "").toLowerCase()
+  if (n.endsWith(".png")) return "image/png"
+  if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg"
+  if (n.endsWith(".webp")) return "image/webp"
+  return "image/png"
+}
+
 export default function TrainYolo() {
   const { id } = useParams()
   const projectId = Number(id)
@@ -100,6 +115,12 @@ export default function TrainYolo() {
   const [job, setJob] = useState<Job | null>(null)
   const [liveCsv, setLiveCsv] = useState<LiveCsv | null>(null)
   const [summary, setSummary] = useState<TrainSummary | null>(null)
+
+  // plot rendering (auth-safe)
+  const [plotSrcByUrl, setPlotSrcByUrl] = useState<Record<string, string>>({})
+  const plotObjUrlsRef = useRef<string[]>([])
+  const [showAllPlots, setShowAllPlots] = useState(false)
+  const [activePlot, setActivePlot] = useState<{ name: string; src: string } | null>(null)
 
   const wsRef = useRef<WebSocket | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -233,6 +254,8 @@ export default function TrainYolo() {
 
     setSummary(null)
     setLiveCsv(null)
+    setShowAllPlots(false)
+    setActivePlot(null)
 
     const payload = {
       dataset_id: datasetId,
@@ -285,7 +308,11 @@ export default function TrainYolo() {
     return () => {
       if (wsRef.current) wsRef.current.close()
       stopPolling()
+      // revoke plot object urls
+      plotObjUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
+      plotObjUrlsRef.current = []
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -315,6 +342,63 @@ export default function TrainYolo() {
     return s === "running" || s === "queued"
   }, [job?.status])
 
+  const plotsSorted = useMemo(() => {
+    const ps = summary?.plots || []
+    const score = (n: string) => {
+      const x = (n || "").toLowerCase()
+      if (x.includes("confusion_matrix")) return 0
+      if (x.includes("pr_curve")) return 1
+      if (x.includes("p_curve")) return 2
+      if (x.includes("r_curve")) return 3
+      if (x.includes("f1_curve")) return 4
+      if (x.includes("results")) return 5
+      return 10
+    }
+    return [...ps].sort((a, b) => score(a.name) - score(b.name) || a.name.localeCompare(b.name))
+  }, [summary?.plots])
+
+  // Fetch plot blobs (auth-safe) so <img> works even for protected endpoints or octet-stream
+  useEffect(() => {
+    // revoke previous object urls
+    plotObjUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
+    plotObjUrlsRef.current = []
+    setPlotSrcByUrl({})
+    setActivePlot(null)
+
+    const plots = plotsSorted || []
+    if (!plots.length) return
+
+    let cancelled = false
+
+    ;(async () => {
+      const out: Record<string, string> = {}
+      for (const p of plots) {
+        try {
+          const url = normalizeUrl(p.url)
+          const r = await api.get(url, { responseType: "blob" })
+          const blob: Blob = r.data
+          const mime = blob.type && blob.type !== "application/octet-stream" ? blob.type : guessImageMime(p.name)
+          const fixed = blob.type && blob.type.startsWith("image/") ? blob : new Blob([blob], { type: mime })
+          const objUrl = URL.createObjectURL(fixed)
+          out[p.url] = objUrl
+          plotObjUrlsRef.current.push(objUrl)
+        } catch {
+          // fallback: if it fails, we simply won't show the image
+        }
+      }
+      if (!cancelled) setPlotSrcByUrl(out)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [plotsSorted])
+
+  const plotsToShow = useMemo(() => {
+    const ps = plotsSorted || []
+    return showAllPlots ? ps : ps.slice(0, 12)
+  }, [plotsSorted, showAllPlots])
+
   return (
     <div>
       <PageHeader
@@ -332,6 +416,29 @@ export default function TrainYolo() {
           </div>
         }
       />
+
+      {/* Modal preview for plots */}
+      {activePlot && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={() => setActivePlot(null)}>
+          <div
+            className="w-full max-w-6xl rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-[color:var(--border)] flex items-center justify-between gap-3">
+              <div className="font-semibold text-sm truncate">{activePlot.name}</div>
+              <button className="btn btn-ghost text-sm" onClick={() => setActivePlot(null)}>
+                Close
+              </button>
+            </div>
+            <div className="p-4">
+              <div className="rounded-2xl border border-[color:var(--border)] bg-black/5 overflow-hidden">
+                <img src={activePlot.src} alt={activePlot.name} className="w-full max-h-[75vh] object-contain" />
+              </div>
+              <div className="mt-3 text-xs opacity-75">Tip: Use the scrollwheel to zoom in your browser (Ctrl + / Ctrl -) for fine inspection.</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         {/* Inputs */}
@@ -363,12 +470,7 @@ export default function TrainYolo() {
 
             <div className="md:col-span-2">
               <FieldLabel>Trained model name</FieldLabel>
-              <input
-                className={UI.field}
-                value={trainedModelName}
-                onChange={(e) => setTrainedModelName(e.target.value)}
-                placeholder="e.g. essi_vehicle_v1"
-              />
+              <input className={UI.field} value={trainedModelName} onChange={(e) => setTrainedModelName(e.target.value)} placeholder="e.g. essi_vehicle_v1" />
               <div className={UI.helper}>
                 This name will appear in <span className="font-semibold">Models</span> after training.
               </div>
@@ -528,7 +630,7 @@ export default function TrainYolo() {
             </div>
 
             <div className="p-4">
-              {!job && <div className="text-sm opacity-75">Start a training job to see live metrics and downloadable artifacts.</div>}
+              {!job && <div className="text-sm opacity-75">Start a training job to see live metrics and plots.</div>}
 
               {job && (
                 <div className="text-xs opacity-75 mb-3">
@@ -592,9 +694,14 @@ export default function TrainYolo() {
           </div>
 
           {/* Summary */}
-          {summary && (summary.downloads?.length || summary.plots?.length || summary.metrics) ? (
+          {summary && (summary.plots?.length || summary.metrics) ? (
             <div className="mt-4">
-              <div className="font-semibold text-sm">Training results</div>
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-semibold text-sm">Training results</div>
+                <Link to={`/project/${projectId}/models`} className="btn btn-ghost text-sm">
+                  Open Models
+                </Link>
+              </div>
 
               {summary.metrics && (
                 <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -612,46 +719,54 @@ export default function TrainYolo() {
                 </div>
               )}
 
-              {summary.downloads?.length ? (
-                <div className="mt-4">
-                  <div className="text-xs font-semibold opacity-80 mb-2">Downloads</div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {summary.downloads.map((d) => (
-                      <a key={d.url} className="btn btn-primary text-sm" href={`${API_BASE}${d.url}`} target="_blank" rel="noreferrer">
-                        {d.label}
-                      </a>
-                    ))}
-                    <Link to={`/project/${projectId}/models`} className="btn btn-ghost text-sm">
-                      Open Models
-                    </Link>
-                  </div>
-                </div>
-              ) : null}
+              {/* Downloads removed as requested */}
 
-              {summary.plots?.length ? (
+              {plotsSorted?.length ? (
                 <div className="mt-4">
-                  <div className="text-xs font-semibold opacity-80 mb-2">Plots</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {summary.plots.slice(0, 6).map((p) => (
-                      <a
-                        key={p.url}
-                        className="rounded-2xl border border-[color:var(--border)] overflow-hidden bg-[color:var(--card)] hover:opacity-95 transition"
-                        href={`${API_BASE}${p.url}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={p.name}
-                      >
-                        <img src={`${API_BASE}${p.url}`} alt={p.name} className="w-full h-32 object-cover" />
-                        <div className="px-3 py-2 text-xs font-semibold opacity-80 truncate">{p.name}</div>
-                      </a>
-                    ))}
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <div className="text-xs font-semibold opacity-80">Plots</div>
+                    {plotsSorted.length > 12 && (
+                      <button className="btn btn-ghost text-sm" onClick={() => setShowAllPlots((v) => !v)}>
+                        {showAllPlots ? "Show less" : `Show all (${plotsSorted.length})`}
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {plotsToShow.map((p) => {
+                      const src = plotSrcByUrl[p.url] || ""
+                      const fallback = `${API_BASE}${normalizeUrl(p.url)}`
+                      const imgSrc = src || fallback
+
+                      return (
+                        <button
+                          key={p.url}
+                          type="button"
+                          className="text-left rounded-2xl border border-[color:var(--border)] overflow-hidden bg-[color:var(--card)] hover:opacity-95 transition"
+                          onClick={() => {
+                            if (!imgSrc) return
+                            setActivePlot({ name: p.name, src: imgSrc })
+                          }}
+                          title="Click to enlarge"
+                        >
+                          <div className="w-full h-56 md:h-64 bg-black/5 flex items-center justify-center">
+                            {imgSrc ? (
+                              <img src={imgSrc} alt={p.name} className="w-full h-full object-contain" />
+                            ) : (
+                              <div className="text-sm opacity-70 px-4 py-10">Loading plot…</div>
+                            )}
+                          </div>
+                          <div className="px-3 py-2 text-xs font-semibold opacity-80 truncate">{p.name}</div>
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               ) : null}
             </div>
           ) : (
             <div className="mt-4 text-sm opacity-80">
-              After success, the trained model will appear in your <span className="font-semibold">Models</span> list, and you can download artifacts here.
+              After success, the trained model will appear in your <span className="font-semibold">Models</span> list, and plots will show here.
             </div>
           )}
         </div>
