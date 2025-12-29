@@ -15,6 +15,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 import torch
+try:
+    import torch.multiprocessing as _tmp_mp  # type: ignore
+    _strategy = os.environ.get("TORCH_SHARING_STRATEGY", "").strip()
+    if _strategy:
+        _tmp_mp.set_sharing_strategy(_strategy)
+except Exception:
+    pass
 from ultralytics import YOLO
 
 from app.workers.celery_app import celery
@@ -185,6 +192,21 @@ def train_yolo_task(job_id: int):
         device = str(payload.get("device", "0"))
         workers = int(payload.get("workers", 4))
         optimizer = str(payload.get("optimizer", "SGD"))
+
+        # Allow env override (useful in Docker without changing DB payloads)
+        env_workers = os.environ.get("YOLO_WORKERS", "").strip()
+        if env_workers:
+            try:
+                workers = int(env_workers)
+            except Exception:
+                pass
+
+        # Clamp to a sane range (avoids accidental huge worker counts)
+        try:
+            max_workers = int(os.environ.get("YOLO_WORKERS_MAX", "8"))
+        except Exception:
+            max_workers = 8
+        workers = max(0, min(int(workers), max_workers))
 
         # Stability guard: default to forcing dataloader workers=0 in container setups
         if os.environ.get("ESSI_FORCE_DATALOADER_WORKERS0", "1") == "1":
@@ -440,6 +462,7 @@ def train_yolo_task(job_id: int):
             split=bench_split,
             imgsz=imgsz,
             batch=batch,
+            workers=workers,
             device=device_arg,
             conf=conf,
             iou=iou,

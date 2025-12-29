@@ -24,6 +24,7 @@ services:
   backend:
     build: ./backend
     gpus: all
+    shm_size: "2gb"
     environment:
       DATABASE_URL: postgresql+psycopg://annotator:annotator@postgres:5432/annotator
       STORAGE_DIR: /app/data
@@ -51,6 +52,7 @@ services:
     build: ./backend
     command: celery -A app.workers.celery_app.celery worker -l info -I app.workers.tasks --pool=solo --concurrency=1
     gpus: all
+    shm_size: "2gb"
     environment:
       DATABASE_URL: postgresql+psycopg://annotator:annotator@postgres:5432/annotator
       STORAGE_DIR: /app/data
