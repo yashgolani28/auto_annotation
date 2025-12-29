@@ -37,6 +37,8 @@ const UI = {
   textarea: "min-h-[96px] resize-y",
   label: "text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1",
   helper: "text-[11px] text-slate-600 dark:text-slate-300 mt-1",
+  sectionTitle: "text-sm font-semibold",
+  sectionHint: "text-xs opacity-80 mt-1",
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -67,6 +69,12 @@ function normalizeUrl(u: string) {
   if (u.startsWith("http://") || u.startsWith("https://")) return u
   if (u.startsWith("/")) return u
   return `/${u}`
+}
+
+function fileBase(nameOrPath: string) {
+  const s = (nameOrPath || "").replaceAll("\\", "/")
+  const parts = s.split("/")
+  return (parts[parts.length - 1] || "").trim()
 }
 
 function guessImageMime(name: string) {
@@ -308,7 +316,6 @@ export default function TrainYolo() {
     return () => {
       if (wsRef.current) wsRef.current.close()
       stopPolling()
-      // revoke plot object urls
       plotObjUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
       plotObjUrlsRef.current = []
     }
@@ -330,6 +337,21 @@ export default function TrainYolo() {
     return "badge"
   }
 
+  const isActive = useMemo(() => {
+    const s = (job?.status || "").toLowerCase()
+    return s === "running" || s === "queued"
+  }, [job?.status])
+
+  // ✅ Hide noisy per-epoch messages in the Job card
+  const jobMessageForUI = useMemo(() => {
+    if (!job) return ""
+    const s = (job.status || "").toLowerCase()
+    if (s === "running" || s === "queued") {
+      return "Training is running. Live metrics will keep updating below."
+    }
+    return (job.message || "").trim()
+  }, [job])
+
   const liveColumns = useMemo(() => pickColumns(liveCsv?.columns || []), [liveCsv?.columns])
   const liveColIdx = useMemo(() => {
     const map = new Map<string, number>()
@@ -337,11 +359,7 @@ export default function TrainYolo() {
     return map
   }, [liveCsv?.columns])
 
-  const isActive = useMemo(() => {
-    const s = (job?.status || "").toLowerCase()
-    return s === "running" || s === "queued"
-  }, [job?.status])
-
+  // ✅ Sort + ✅ de-duplicate plots so you don't see the same image twice
   const plotsSorted = useMemo(() => {
     const ps = summary?.plots || []
     const score = (n: string) => {
@@ -354,12 +372,24 @@ export default function TrainYolo() {
       if (x.includes("results")) return 5
       return 10
     }
-    return [...ps].sort((a, b) => score(a.name) - score(b.name) || a.name.localeCompare(b.name))
+
+    const sorted = [...ps].sort((a, b) => score(a.name) - score(b.name) || a.name.localeCompare(b.name))
+
+    const seen = new Set<string>()
+    const out: typeof sorted = []
+    for (const p of sorted) {
+      const nameKey = (p.name || "").trim().toLowerCase()
+      const baseKey = fileBase(p.job_rel_path || p.url).toLowerCase()
+      const key = nameKey || baseKey || normalizeUrl(p.url)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(p)
+    }
+    return out
   }, [summary?.plots])
 
   // Fetch plot blobs (auth-safe) so <img> works even for protected endpoints or octet-stream
   useEffect(() => {
-    // revoke previous object urls
     plotObjUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
     plotObjUrlsRef.current = []
     setPlotSrcByUrl({})
@@ -377,14 +407,12 @@ export default function TrainYolo() {
           const url = normalizeUrl(p.url)
           const r = await api.get(url, { responseType: "blob" })
           const blob: Blob = r.data
-          const mime = blob.type && blob.type !== "application/octet-stream" ? blob.type : guessImageMime(p.name)
+          const mime = blob.type && blob.type !== "application/octet-stream" ? blob.type : guessImageMime(p.name || p.job_rel_path || p.url)
           const fixed = blob.type && blob.type.startsWith("image/") ? blob : new Blob([blob], { type: mime })
           const objUrl = URL.createObjectURL(fixed)
           out[p.url] = objUrl
           plotObjUrlsRef.current.push(objUrl)
-        } catch {
-          // fallback: if it fails, we simply won't show the image
-        }
+        } catch {}
       }
       if (!cancelled) setPlotSrcByUrl(out)
     })()
@@ -434,16 +462,18 @@ export default function TrainYolo() {
               <div className="rounded-2xl border border-[color:var(--border)] bg-black/5 overflow-hidden">
                 <img src={activePlot.src} alt={activePlot.name} className="w-full max-h-[75vh] object-contain" />
               </div>
-              <div className="mt-3 text-xs opacity-75">Tip: Use the scrollwheel to zoom in your browser (Ctrl + / Ctrl -) for fine inspection.</div>
+              <div className="mt-3 text-xs opacity-75">Tip: Zoom with Ctrl + / Ctrl - for fine inspection.</div>
             </div>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        {/* Inputs */}
-        <div className="app-card p-5">
-          <div className="font-semibold">Inputs</div>
+      {/* ✅ Professional symmetric layout */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        {/* Left: Configuration (sticky on desktop) */}
+        <div className="xl:col-span-5 xl:sticky xl:top-4 self-start app-card p-5">
+          <div className={UI.sectionTitle}>Configuration</div>
+          <div className={UI.sectionHint}>Set dataset, labels, training parameters and benchmark settings.</div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
@@ -485,7 +515,7 @@ export default function TrainYolo() {
                 placeholder='{"site":"J&K","camera":"axis-m1125","notes":"baseline run"}'
               />
               <div className={UI.helper}>
-                Optional. This will be embedded into the trained <span className="font-semibold">.pt</span> and stored in DB meta.
+                Optional. Embedded into trained <span className="font-semibold">.pt</span> and stored in DB meta.
               </div>
             </div>
 
@@ -594,117 +624,134 @@ export default function TrainYolo() {
               </div>
             </div>
           </div>
-
-          {/* Job card */}
-          {job && (
-            <div className="mt-4 rounded-2xl p-4 border border-[color:var(--border)] bg-[rgba(59,130,246,0.06)]">
-              <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold">Job #{job.id}</div>
-                <span className={statusBadge(job.status)}>{job.status}</span>
-              </div>
-
-              <div className="text-xs opacity-75 mt-2">{job.message || "—"}</div>
-
-              <div className="mt-3">
-                <div className="h-2 rounded-full overflow-hidden bg-[rgba(59,130,246,0.18)]">
-                  <div className="h-2 bg-blue-600 transition-all" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
-                </div>
-                <div className="text-xs opacity-75 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
-              </div>
-            </div>
-          )}
         </div>
 
-        {/* Outputs */}
-        <div className="app-card p-5">
-          <div className="font-semibold">Outputs</div>
-          <div className="text-sm opacity-80 mt-1">
-            Live training updates come from <span className="font-semibold">results.csv</span>, so users can see progress even if logs are quiet.
-          </div>
-
-          {/* Live CSV */}
-          <div className="mt-4 rounded-2xl border border-[color:var(--border)] overflow-hidden">
-            <div className="px-4 py-3 bg-[rgba(59,130,246,0.06)] flex items-center justify-between gap-3">
-              <div className="font-semibold text-sm">Live training metrics</div>
+        {/* Right: Status + Live + Results */}
+        <div className="xl:col-span-7 space-y-4">
+          {/* Job status */}
+          <div className="app-card p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className={UI.sectionTitle}>Job status</div>
+                <div className={UI.sectionHint}>Progress and current state of the training job.</div>
+              </div>
               {job && <span className={statusBadge(job.status)}>{job.status}</span>}
             </div>
 
-            <div className="p-4">
-              {!job && <div className="text-sm opacity-75">Start a training job to see live metrics and plots.</div>}
-
-              {job && (
-                <div className="text-xs opacity-75 mb-3">
-                  {liveCsv?.updated_at ? (
-                    <>
-                      Last update: <span className="font-semibold">{new Date(liveCsv.updated_at).toLocaleString()}</span>
-                    </>
-                  ) : (
-                    "Waiting for first epoch…"
-                  )}
+            {!job ? (
+              <div className="mt-4 text-sm opacity-75">No active job. Start training to see status updates.</div>
+            ) : (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="font-semibold">Job #{job.id}</div>
+                  <div className="text-xs opacity-70">{job.updated_at ? new Date(job.updated_at).toLocaleString() : ""}</div>
                 </div>
-              )}
 
-              {job && liveCsv?.rows?.length ? (
-                <>
-                  <div className="overflow-auto rounded-xl border border-[color:var(--border)]">
-                    <table className="min-w-full text-xs">
-                      <thead className="sticky top-0 bg-[color:var(--card)]">
-                        <tr className="border-b border-[color:var(--border)]">
-                          {liveColumns.map((c) => (
-                            <th key={c} className="text-left px-3 py-2 font-semibold opacity-80 whitespace-nowrap">
-                              {c === "epoch" ? "epoch" : c.split("/").slice(-1)[0]}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {liveCsv.rows.slice(-10).map((row, i) => (
-                          <tr key={i} className={cx("border-b border-[color:var(--border)]", i % 2 === 0 && "bg-[rgba(59,130,246,0.03)]")}>
-                            {liveColumns.map((c) => {
-                              const idx = liveColIdx.get(c) ?? -1
-                              let v = idx >= 0 ? row[idx] : ""
-                              if (c === "epoch" && v !== "") {
-                                const n = Number(v)
-                                if (!Number.isNaN(n)) v = String(n + 1)
-                              }
-                              return (
-                                <td key={c} className="px-3 py-2 whitespace-nowrap">
-                                  {v || "—"}
-                                </td>
-                              )
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <div className="text-xs opacity-80 mt-2">{jobMessageForUI || "—"}</div>
+
+                <div className="mt-3">
+                  <div className="h-2 rounded-full overflow-hidden bg-[rgba(59,130,246,0.18)]">
+                    <div className="h-2 bg-blue-600 transition-all" style={{ width: `${Math.round((job.progress || 0) * 100)}%` }} />
                   </div>
+                  <div className="text-xs opacity-75 mt-1">{Math.round((job.progress || 0) * 100)}%</div>
+                </div>
+              </div>
+            )}
+          </div>
 
-                  {job.id && liveCsv.job_rel_path && (
-                    <div className="mt-3 flex items-center gap-2 flex-wrap">
-                      <a className="btn btn-ghost text-sm" href={jobTrainYoloArtifactUrl(job.id, liveCsv.job_rel_path)} target="_blank" rel="noreferrer">
-                        Open full results.csv
-                      </a>
+          {/* Live CSV */}
+          <div className="app-card p-5">
+            <div className={UI.sectionTitle}>Live training metrics</div>
+            <div className={UI.sectionHint}>
+              Live updates come from <span className="font-semibold">results.csv</span>, so users can confirm training hasn’t stalled.
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[color:var(--border)] overflow-hidden">
+              <div className="px-4 py-3 bg-[rgba(59,130,246,0.06)] flex items-center justify-between gap-3">
+                <div className="font-semibold text-sm">Recent epochs</div>
+                {job && <span className={statusBadge(job.status)}>{job.status}</span>}
+              </div>
+
+              <div className="p-4">
+                {!job && <div className="text-sm opacity-75">Start a training job to see live metrics.</div>}
+
+                {job && (
+                  <div className="text-xs opacity-75 mb-3">
+                    {liveCsv?.updated_at ? (
+                      <>
+                        Last update: <span className="font-semibold">{new Date(liveCsv.updated_at).toLocaleString()}</span>
+                      </>
+                    ) : (
+                      "Waiting for first epoch…"
+                    )}
+                  </div>
+                )}
+
+                {job && liveCsv?.rows?.length ? (
+                  <>
+                    <div className="overflow-auto rounded-xl border border-[color:var(--border)]">
+                      <table className="min-w-full text-xs">
+                        <thead className="sticky top-0 bg-[color:var(--card)]">
+                          <tr className="border-b border-[color:var(--border)]">
+                            {liveColumns.map((c) => (
+                              <th key={c} className="text-left px-3 py-2 font-semibold opacity-80 whitespace-nowrap">
+                                {c === "epoch" ? "epoch" : c.split("/").slice(-1)[0]}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {liveCsv.rows.slice(-10).map((row, i) => (
+                            <tr key={i} className={cx("border-b border-[color:var(--border)]", i % 2 === 0 && "bg-[rgba(59,130,246,0.03)]")}>
+                              {liveColumns.map((c) => {
+                                const idx = liveColIdx.get(c) ?? -1
+                                let v = idx >= 0 ? row[idx] : ""
+                                if (c === "epoch" && v !== "") {
+                                  const n = Number(v)
+                                  if (!Number.isNaN(n)) v = String(n + 1)
+                                }
+                                return (
+                                  <td key={c} className="px-3 py-2 whitespace-nowrap">
+                                    {v || "—"}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  )}
-                </>
-              ) : job ? (
-                <div className="text-sm opacity-75">Waiting for results.csv… (it usually appears after the first epoch)</div>
-              ) : null}
+
+                    {job.id && liveCsv.job_rel_path && (
+                      <div className="mt-3">
+                        <a className="btn btn-ghost text-sm" href={jobTrainYoloArtifactUrl(job.id, liveCsv.job_rel_path)} target="_blank" rel="noreferrer">
+                          Open full results.csv
+                        </a>
+                      </div>
+                    )}
+                  </>
+                ) : job ? (
+                  <div className="text-sm opacity-75">Waiting for results.csv… (usually appears after the first epoch)</div>
+                ) : null}
+              </div>
             </div>
           </div>
 
-          {/* Summary */}
+          {/* Summary + Plots */}
           {summary && (summary.plots?.length || summary.metrics) ? (
-            <div className="mt-4">
+            <div className="app-card p-5">
               <div className="flex items-center justify-between gap-3">
-                <div className="font-semibold text-sm">Training results</div>
+                <div>
+                  <div className={UI.sectionTitle}>Results</div>
+                  <div className={UI.sectionHint}>Final metrics and plots generated by training & benchmarking.</div>
+                </div>
                 <Link to={`/project/${projectId}/models`} className="btn btn-ghost text-sm">
                   Open Models
                 </Link>
               </div>
 
               {summary.metrics && (
-                <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
+                <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
                   {[
                     ["Precision", summary.metrics["precision(B)"] ?? summary.metrics["precision"]],
                     ["Recall", summary.metrics["recall(B)"] ?? summary.metrics["recall"]],
@@ -719,10 +766,10 @@ export default function TrainYolo() {
                 </div>
               )}
 
-              {/* Downloads removed as requested */}
+              {/* Downloads are intentionally removed */}
 
               {plotsSorted?.length ? (
-                <div className="mt-4">
+                <div className="mt-5">
                   <div className="flex items-center justify-between gap-3 mb-2">
                     <div className="text-xs font-semibold opacity-80">Plots</div>
                     {plotsSorted.length > 12 && (
@@ -732,7 +779,8 @@ export default function TrainYolo() {
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* ✅ Better grid: 2 cols on md, 3 cols on xl for symmetry */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {plotsToShow.map((p) => {
                       const src = plotSrcByUrl[p.url] || ""
                       const fallback = `${API_BASE}${normalizeUrl(p.url)}`
@@ -749,7 +797,7 @@ export default function TrainYolo() {
                           }}
                           title="Click to enlarge"
                         >
-                          <div className="w-full h-56 md:h-64 bg-black/5 flex items-center justify-center">
+                          <div className="w-full h-56 bg-black/5 flex items-center justify-center">
                             {imgSrc ? (
                               <img src={imgSrc} alt={p.name} className="w-full h-full object-contain" />
                             ) : (
@@ -765,8 +813,11 @@ export default function TrainYolo() {
               ) : null}
             </div>
           ) : (
-            <div className="mt-4 text-sm opacity-80">
-              After success, the trained model will appear in your <span className="font-semibold">Models</span> list, and plots will show here.
+            <div className="app-card p-5">
+              <div className={UI.sectionTitle}>Results</div>
+              <div className={UI.sectionHint}>
+                After success, the trained model will appear in <span className="font-semibold">Models</span>, and plots will show here.
+              </div>
             </div>
           )}
         </div>
