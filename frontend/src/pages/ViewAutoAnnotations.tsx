@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { useParams, Link } from "react-router-dom"
 import { api, mediaUrlCandidates } from "../api"
 import { useToast } from "../components/Toast"
@@ -129,7 +130,11 @@ function AnnotationOverlay({
     <div className="relative">
       <SmartItemImage imgRef={imgRef} itemId={item.id} alt={item.file_name} className="w-full h-auto" />
       {imgSize && (
-        <svg className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }} viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}>
+        <svg
+          className="absolute inset-0 w-full h-full"
+          style={{ pointerEvents: "none" }}
+          viewBox={`0 0 ${imgSize.width} ${imgSize.height}`}
+        >
           {annotations.map((ann, idx) => {
             const cls = classById[ann.class_id]
             return (
@@ -183,6 +188,26 @@ export default function ViewAutoAnnotations() {
 
   const [autoDetecting, setAutoDetecting] = useState(false)
   const autoDetectRunId = useRef(0)
+
+  // Close modal on Escape
+  useEffect(() => {
+    if (!selectedItem) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedItem(null)
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [selectedItem])
+
+  // Prevent body scroll while modal is open
+  useEffect(() => {
+    if (!selectedItem) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [selectedItem])
 
   const classById = useMemo(() => {
     return classes.reduce((acc: Record<number, LabelClass>, c: LabelClass) => {
@@ -396,12 +421,7 @@ export default function ViewAutoAnnotations() {
 
   return (
     <div className="max-w-7xl">
-      <PageHeader
-        title="View auto-annotations"
-        subtitle="Browse and review auto-annotated images."
-        projectId={projectId}
-        right={controls}
-      />
+      <PageHeader title="View auto-annotations" subtitle="Browse and review auto-annotated images." projectId={projectId} right={controls} />
 
       {loading && items.length === 0 ? (
         <div className="text-center py-12 text-blue-700 dark:text-blue-200">Loading…</div>
@@ -409,18 +429,12 @@ export default function ViewAutoAnnotations() {
         <div className="text-center py-12">
           <div className="text-slate-900 dark:text-slate-100 mb-2 font-medium">No auto-annotated images found</div>
           <div className="text-sm text-slate-600 dark:text-slate-300">
-            {annotationSetId === 0
-              ? "Select an annotation set to view images."
-              : "This annotation set has no annotations for the selected dataset."}
+            {annotationSetId === 0 ? "Select an annotation set to view images." : "This annotation set has no annotations for the selected dataset."}
           </div>
 
           {annotationSetId > 0 && (
             <div className="mt-4">
-              <button
-                className={UI.btnPrimary}
-                disabled={autoDetecting}
-                onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}
-              >
+              <button className={UI.btnPrimary} disabled={autoDetecting} onClick={() => autoDetectPair({ preferredDatasetId: datasetId, preferredSetId: annotationSetId })}>
                 {autoDetecting ? "Scanning…" : "Try auto-detecting the right dataset/set"}
               </button>
             </div>
@@ -440,9 +454,7 @@ export default function ViewAutoAnnotations() {
               </div>
               <div>
                 <div className="text-xs text-slate-600 dark:text-slate-300">Avg per image</div>
-                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-                  {items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}
-                </div>
+                <div className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{items.length > 0 ? (totalAnnotations / items.length).toFixed(1) : "0"}</div>
               </div>
               <div>
                 <div className="text-xs text-slate-600 dark:text-slate-300">Classes detected</div>
@@ -483,12 +495,15 @@ export default function ViewAutoAnnotations() {
                 key={item.id}
                 className="bg-white/70 border border-blue-100/70 rounded-2xl overflow-hidden hover:shadow-lg hover:border-blue-300 transition-all cursor-pointer dark:bg-slate-950/40 dark:border-blue-900/50"
                 onClick={() => setSelectedItem(item)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setSelectedItem(item)
+                }}
               >
                 <div className="relative aspect-square bg-blue-50 dark:bg-blue-950/40">
                   <SmartItemImage itemId={item.id} alt={item.file_name} className="w-full h-full object-contain" loading="lazy" />
-                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                    {item.annotationCount}
-                  </div>
+                  <div className="absolute top-2 right-2 bg-black/70 text-white text-xs px-2 py-1 rounded">{item.annotationCount}</div>
                 </div>
                 <div className="p-3">
                   <div className="text-sm font-medium truncate text-slate-900 dark:text-slate-100">{item.file_name}</div>
@@ -508,9 +523,7 @@ export default function ViewAutoAnnotations() {
                           }}
                         >
                           {cls?.name || "Unknown"}
-                          {ann.confidence !== null && ann.confidence !== undefined && (
-                            <span className="ml-1 opacity-70">{(ann.confidence * 100).toFixed(0)}%</span>
-                          )}
+                          {ann.confidence !== null && ann.confidence !== undefined && <span className="ml-1 opacity-70">{(ann.confidence * 100).toFixed(0)}%</span>}
                         </span>
                       )
                     })}
@@ -523,70 +536,70 @@ export default function ViewAutoAnnotations() {
         </>
       )}
 
-      {selectedItem && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
+      {selectedItem &&
+        createPortal(
           <div
-            className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-100/70 dark:bg-slate-950 dark:border-blue-900/50"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4"
+            onClick={() => setSelectedItem(null)}
+            role="dialog"
+            aria-modal="true"
           >
-            <div className="sticky top-0 bg-white border-b border-blue-100/70 p-4 flex items-center justify-between dark:bg-slate-950 dark:border-blue-900/50">
-              <div>
-                <div className="font-semibold text-slate-900 dark:text-slate-100">{selectedItem.file_name}</div>
-                <div className="text-sm text-blue-700 dark:text-blue-200">
-                  {selectedItem.width} × {selectedItem.height} • {selectedItem.annotationCount} annotations
+            <div
+              className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-auto shadow-2xl border border-blue-100/70 dark:bg-slate-950 dark:border-blue-900/50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="sticky top-0 bg-white border-b border-blue-100/70 p-4 flex items-center justify-between dark:bg-slate-950 dark:border-blue-900/50">
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-slate-100">{selectedItem.file_name}</div>
+                  <div className="text-sm text-blue-700 dark:text-blue-200">
+                    {selectedItem.width} × {selectedItem.height} • {selectedItem.annotationCount} annotations
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}&item=${selectedItem.id}`} className={UI.btnPrimary}>
+                    Edit in editor
+                  </Link>
+                  <button onClick={() => setSelectedItem(null)} className={UI.btnSecondary}>
+                    Close
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Link
-                  to={`/project/${projectId}/annotate?dataset=${datasetId}&aset=${annotationSetId}&item=${selectedItem.id}`}
-                  className={UI.btnPrimary}
-                >
-                  Edit in editor
-                </Link>
-                <button onClick={() => setSelectedItem(null)} className={UI.btnSecondary}>
-                  Close
-                </button>
-              </div>
-            </div>
 
-            <div className="p-4">
-              <div className="relative bg-blue-50 dark:bg-blue-950/40 rounded-xl overflow-hidden mb-4 border border-blue-100/70 dark:border-blue-900/50">
-                <AnnotationOverlay item={selectedItem} annotations={selectedItem.annotations} classById={classById} />
-              </div>
-
-              <div className="space-y-2">
-                <div className="font-semibold mb-2 text-slate-900 dark:text-slate-100">
-                  Annotations ({selectedItem.annotations.length})
+              <div className="p-4">
+                <div className="relative bg-blue-50 dark:bg-blue-950/40 rounded-xl overflow-hidden mb-4 border border-blue-100/70 dark:border-blue-900/50">
+                  <AnnotationOverlay item={selectedItem} annotations={selectedItem.annotations} classById={classById} />
                 </div>
-                {selectedItem.annotations.map((ann, idx) => {
-                  const cls = classById[ann.class_id]
-                  return (
-                    <div
-                      key={idx}
-                      className="border border-blue-100/70 rounded-xl p-3 bg-white/70 flex items-center justify-between hover:bg-blue-50/40 transition-colors dark:bg-slate-950/30 dark:border-blue-900/50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-4 h-4 rounded border border-blue-200/70 dark:border-blue-900/60" style={{ backgroundColor: cls?.color || "#3b82f6" }} />
-                        <div>
-                          <div className="font-medium text-slate-900 dark:text-slate-100">{cls?.name || "Unknown"}</div>
-                          <div className="text-xs text-blue-700 dark:text-blue-200">
-                            Box: ({ann.x.toFixed(0)}, {ann.y.toFixed(0)}) {ann.w.toFixed(0)}×{ann.h.toFixed(0)}
+
+                <div className="space-y-2">
+                  <div className="font-semibold mb-2 text-slate-900 dark:text-slate-100">Annotations ({selectedItem.annotations.length})</div>
+                  {selectedItem.annotations.map((ann, idx) => {
+                    const cls = classById[ann.class_id]
+                    return (
+                      <div
+                        key={idx}
+                        className="border border-blue-100/70 rounded-xl p-3 bg-white/70 flex items-center justify-between hover:bg-blue-50/40 transition-colors dark:bg-slate-950/30 dark:border-blue-900/50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-4 h-4 rounded border border-blue-200/70 dark:border-blue-900/60" style={{ backgroundColor: cls?.color || "#3b82f6" }} />
+                          <div>
+                            <div className="font-medium text-slate-900 dark:text-slate-100">{cls?.name || "Unknown"}</div>
+                            <div className="text-xs text-blue-700 dark:text-blue-200">
+                              Box: ({ann.x.toFixed(0)}, {ann.y.toFixed(0)}) {ann.w.toFixed(0)}×{ann.h.toFixed(0)}
+                            </div>
                           </div>
                         </div>
+                        {ann.confidence !== null && ann.confidence !== undefined && (
+                          <div className="text-sm text-blue-800 dark:text-blue-200 font-medium">{(ann.confidence * 100).toFixed(1)}% confidence</div>
+                        )}
                       </div>
-                      {ann.confidence !== null && ann.confidence !== undefined && (
-                        <div className="text-sm text-blue-800 dark:text-blue-200 font-medium">
-                          {(ann.confidence * 100).toFixed(1)}% confidence
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

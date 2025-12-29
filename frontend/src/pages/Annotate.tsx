@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { Stage, Layer, Rect, Text, Group, Image as KonvaImage, Line } from "react-konva"
-import useImage from "use-image"
-import { api, mediaUrl } from "../api"
+import { api, mediaUrlCandidates } from "../api"
 import { useAuth } from "../state/auth"
 import { useToast } from "../components/Toast"
 
@@ -27,14 +26,24 @@ function cx(...xs: Array<string | false | undefined | null>) {
   return xs.filter(Boolean).join(" ")
 }
 
+function _pathFromUrl(u: string) {
+  try {
+    const url = new URL(u)
+    return url.pathname + url.search
+  } catch {
+    return u
+  }
+}
+
+function _isAbsoluteUrl(u: string) {
+  return /^https?:\/\//i.test(u)
+}
+
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v))
 
 const UI = {
-  // page
   h1: "text-2xl font-semibold text-slate-900 dark:text-slate-100",
   sub: "text-sm text-slate-600 dark:text-slate-300 mt-1",
-
-  // controls
   select:
     "border border-blue-200/70 rounded-xl px-3 py-2 bg-white/90 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
   btnPrimary:
@@ -43,31 +52,131 @@ const UI = {
     "border border-blue-200/70 rounded-xl px-4 py-2 bg-white/80 hover:bg-blue-50 text-blue-700 transition-colors font-medium dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-blue-200 dark:hover:bg-blue-950/40",
   chip:
     "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium bg-blue-50/80 text-blue-800 border-blue-200/70 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
-
-  // panels
   card:
     "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
   rightCard: "rounded-3xl border border-blue-100/70 bg-white/80 shadow-sm dark:border-blue-900/50 dark:bg-slate-950/40",
-
-  // canvas container (dark always, like train yolo)
   canvasShell:
     "rounded-3xl overflow-hidden border border-blue-200/25 bg-slate-950 shadow-lg shadow-blue-950/20 dark:border-blue-900/40",
-
-  // canvas toolbar
   toolBtnBase: "px-2 py-1 rounded-lg border text-xs transition-colors",
   toolBtnActive: "bg-sky-700 text-white border-sky-500",
   toolBtnIdle: "bg-transparent border-slate-700 text-slate-200 hover:bg-slate-800",
-
-  // status pills
   pillBase: "text-xs px-2.5 py-1 rounded-full border font-medium",
   pillOk:
     "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/50",
   pillBad: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-200 dark:border-rose-900/50",
   pillInfo:
     "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900/60",
-
   textarea:
     "w-full border border-blue-200/70 rounded-xl px-2 py-2 text-xs bg-white/90 text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 dark:border-blue-900/60 dark:bg-slate-950/40 dark:text-slate-100 dark:focus:ring-blue-700/40 dark:focus:border-blue-700/40",
+}
+
+// ✅ AUTH-SAFE Konva image loader (works for protected media routes)
+function useAuthedKonvaImage(itemId: number | null) {
+  const candidates = useMemo(() => (itemId ? mediaUrlCandidates(itemId) : []), [itemId])
+
+  const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const blobUrlRef = useRef<string | null>(null)
+  const runRef = useRef(0)
+
+  useEffect(() => {
+    const runId = ++runRef.current
+
+    async function load() {
+      setImage(null)
+      setError(null)
+
+      if (!itemId || candidates.length === 0) return
+
+      setLoading(true)
+      try {
+        // try candidates as AUTHED blob
+        for (const u of candidates) {
+          if (runRef.current !== runId) return
+          try {
+            const res = _isAbsoluteUrl(u)
+              ? await api.get(u, { responseType: "blob" }) // absolute URL: do not strip
+              : await api.get(_pathFromUrl(u), { responseType: "blob" }) // relative: ok
+
+            if (runRef.current !== runId) return
+
+            if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+            const objUrl = URL.createObjectURL(res.data)
+            blobUrlRef.current = objUrl
+
+            const img = new Image()
+            img.onload = () => {
+              if (runRef.current !== runId) return
+              setImage(img)
+              setLoading(false)
+            }
+            img.onerror = () => {
+              // continue loop
+            }
+            img.src = objUrl
+
+            // wait for onload
+            return
+          } catch {
+            // try next candidate
+          }
+        }
+
+        setError("Failed to load image (auth or media path issue).")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void load()
+
+    return () => {
+      // cancel + cleanup
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current)
+        blobUrlRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [itemId, candidates.join("|")])
+
+  return { image, loading, error }
+}
+
+function useAuthedImage(url: string | null) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    let current: string | null = null
+
+    async function run() {
+      if (!url) {
+        setBlobUrl(null)
+        return
+      }
+      try {
+        const r = await api.get(url, { responseType: "blob" })
+        if (!alive) return
+        current = URL.createObjectURL(r.data)
+        setBlobUrl(current)
+      } catch {
+        if (!alive) return
+        setBlobUrl(null)
+      }
+    }
+
+    run()
+
+    return () => {
+      alive = false
+      if (current) URL.revokeObjectURL(current)
+    }
+  }, [url])
+
+  return blobUrl
 }
 
 export default function Annotate() {
@@ -77,7 +186,6 @@ export default function Annotate() {
   const { user } = useAuth()
   const { showToast } = useToast()
 
-  // selectors
   const [datasets, setDatasets] = useState<Dataset[]>([])
   const [annotationSets, setAnnotationSets] = useState<ASet[]>([])
   const [classes, setClasses] = useState<LabelClass[]>([])
@@ -86,32 +194,26 @@ export default function Annotate() {
   const [annotationSetId, setAnnotationSetId] = useState<number>(0)
   const [activeClassId, setActiveClassId] = useState<number>(0)
 
-  // items + paging
   const [items, setItems] = useState<Item[]>([])
   const [index, setIndex] = useState(0)
   const item = items[index] || null
 
-  // annotations
   const [anns, setAnns] = useState<Ann[]>([])
   const [selectedIdx, setSelectedIdx] = useState<number>(-1)
   const [dirty, setDirty] = useState(false)
 
-  // undo / redo history
   type HistoryEntry = { anns: Ann[] }
   const [past, setPast] = useState<HistoryEntry[]>([])
   const [future, setFuture] = useState<HistoryEntry[]>([])
 
-  // lock
   const [lock, setLock] = useState<LockState>({ ok: false })
   const lockTimerRef = useRef<number | null>(null)
 
-  // stage/viewport
   const stageRef = useRef<any>(null)
   const [stageSize, setStageSize] = useState({ w: 1200, h: 720 })
   const [scale, setScale] = useState(1)
   const [pos, setPos] = useState({ x: 0, y: 0 })
 
-  // draw state
   const [drawing, setDrawing] = useState(false)
   const drawStart = useRef<{ x: number; y: number } | null>(null)
   const [draft, setDraft] = useState<Ann | null>(null)
@@ -119,15 +221,12 @@ export default function Annotate() {
   type Tool = "pan" | "draw" | "polygon" | "select"
   const [tool, setTool] = useState<Tool>("draw")
 
-  // polygon
   const [polyPoints, setPolyPoints] = useState<{ x: number; y: number }[]>([])
   const [polyActive, setPolyActive] = useState(false)
 
-  // image
-  const imgUrl = item ? mediaUrl(item.id) : ""
-  const [image] = useImage(imgUrl, "anonymous")
+  // ✅ auth-safe image
+  const { image, loading: imageLoading, error: imageError } = useAuthedKonvaImage(item ? item.id : null)
 
-  // thumbnails strip
   const thumbStart = Math.max(0, index - 8)
   const thumbEnd = Math.min(items.length, index + 9)
   const thumbs = items.slice(thumbStart, thumbEnd)
@@ -157,7 +256,6 @@ export default function Annotate() {
 
     const urlDataset = searchParams.get("dataset")
     const urlAset = searchParams.get("aset")
-    const urlItem = searchParams.get("item")
 
     if (!datasetId) {
       if (urlDataset) {
@@ -176,9 +274,6 @@ export default function Annotate() {
     }
 
     if (!activeClassId && (c.data || []).length) setActiveClassId(c.data[0].id)
-
-    // if urlItem exists, loadItems handles jumping
-    if (urlItem) void urlItem
   }
 
   async function loadItems(dsId: number) {
@@ -188,77 +283,90 @@ export default function Annotate() {
 
     const urlItem = searchParams.get("item")
     if (urlItem) {
-      const itemId = Number(urlItem)
-      const itemIndex = list.findIndex((it) => it.id === itemId)
-      if (itemIndex >= 0) {
-        setIndex(itemIndex)
-        return
-      }
+      const wanted = Number(urlItem)
+      const idx = list.findIndex((x) => x.id === wanted)
+      if (idx >= 0) setIndex(idx)
+    } else {
+      setIndex(0)
     }
-    setIndex(0)
   }
 
   async function loadAnnotations(itemId: number, asetId: number) {
     const r = await api.get(`/api/items/${itemId}/annotations?annotation_set_id=${asetId}`)
-    setAnns(r.data || [])
+    const list: Ann[] = r.data || []
+    setAnns(list)
     setSelectedIdx(-1)
-    setDirty(false)
     setPast([])
     setFuture([])
+    setDirty(false)
   }
 
   async function acquireLock(itemId: number, asetId: number) {
     try {
-      const r = await api.post(`/api/items/${itemId}/lock?annotation_set_id=${asetId}`)
-      setLock({ ok: true, expires_at: r.data.expires_at })
+      const owner =
+        (user as any)?.email ||
+        (user as any)?.username ||
+        String((user as any)?.id || "local")
+
+      const r = await api.post(`/api/items/${itemId}/lock`, {
+        annotation_set_id: asetId,
+        owner,
+        ttl_seconds: 300,
+      })
+      setLock({ ok: true, expires_at: r.data?.expires_at })
+      if (lockTimerRef.current) window.clearTimeout(lockTimerRef.current)
+      lockTimerRef.current = window.setTimeout(() => {
+        setLock({ ok: false, error: "Lock expired" })
+      }, 1000 * 60 * 5)
     } catch (e: any) {
-      setLock({ ok: false, error: e?.response?.data?.detail || "Lock failed" })
+      setLock({ ok: false, error: e?.response?.data?.detail || "Lock unavailable" })
     }
   }
 
-  function startLockLeaseRefresh(itemId: number, asetId: number) {
-    stopLockLeaseRefresh()
-    lockTimerRef.current = window.setInterval(() => {
-      acquireLock(itemId, asetId)
-    }, 60_000) as any
-  }
-
-  function stopLockLeaseRefresh() {
-    if (lockTimerRef.current) {
-      clearInterval(lockTimerRef.current)
-      lockTimerRef.current = null
+  async function releaseLock(itemId: number, asetId: number) {
+    try {
+      const owner =
+        (user as any)?.email ||
+        (user as any)?.username ||
+        String((user as any)?.id || "local")
+        
+      await api.post(`/api/items/${itemId}/unlock`, {
+        annotation_set_id: asetId,
+        owner,
+      })
+    } catch {
+      // ignore
     }
   }
 
   useEffect(() => {
     if (!projectId) return
-    loadBase()
+    void loadBase()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
   useEffect(() => {
     if (!datasetId) return
-    loadItems(datasetId)
+    void loadItems(datasetId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasetId])
 
   useEffect(() => {
     if (!item || !annotationSetId) return
+    void loadAnnotations(item.id, annotationSetId)
+    void acquireLock(item.id, annotationSetId)
 
-    fitToScreen()
-    loadAnnotations(item.id, annotationSetId)
-    acquireLock(item.id, annotationSetId)
-    startLockLeaseRefresh(item.id, annotationSetId)
-
-    return () => stopLockLeaseRefresh()
+    return () => {
+      void releaseLock(item.id, annotationSetId)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [item?.id, annotationSetId])
 
   useEffect(() => {
     function onResize() {
-      const w = window.innerWidth - 64 - 256
-      const h = window.innerHeight - 130
-      setStageSize({ w: Math.max(900, w), h: Math.max(520, h) })
+      const w = Math.min(1200, window.innerWidth - 40)
+      const h = Math.min(720, Math.max(420, Math.floor((w * 9) / 16)))
+      setStageSize({ w, h })
     }
     onResize()
     window.addEventListener("resize", onResize)
@@ -267,7 +375,7 @@ export default function Annotate() {
 
   function fitToScreen() {
     if (!item) return
-    const pad = 40
+    const pad = 20
     const w = stageSize.w - pad * 2
     const h = stageSize.h - pad * 2
     const sx = w / item.width
@@ -341,7 +449,7 @@ export default function Annotate() {
     function onKey(e: KeyboardEvent) {
       if (e.ctrlKey && e.key.toLowerCase() === "s") {
         e.preventDefault()
-        save()
+        void save()
         return
       }
       if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "z") {
@@ -375,28 +483,6 @@ export default function Annotate() {
         const idx = Number(e.key) - 1
         const c = classes[idx]
         if (c) setActiveClassId(c.id)
-      }
-      if (selectedIdx >= 0) {
-        const step = e.shiftKey ? 10 : 1
-        let dx = 0,
-          dy = 0
-        if (e.key === "w") dy = -step
-        if (e.key === "s") dy = step
-        if (e.key === "a") dx = -step
-        if (e.key === "d") dx = step
-        if (dx || dy) {
-          e.preventDefault()
-          applyChange((arr) =>
-            arr.map((b, i) => {
-              if (i !== selectedIdx) return b
-              return {
-                ...b,
-                x: clamp(b.x + dx, 0, (item?.width || 1) - 1),
-                y: clamp(b.y + dy, 0, (item?.height || 1) - 1),
-              }
-            })
-          )
-        }
       }
     }
     window.addEventListener("keydown", onKey)
@@ -495,10 +581,7 @@ export default function Annotate() {
     const h = Math.max(1, maxY - minY)
     const flattened: number[] = []
     polyPoints.forEach((p) => flattened.push(p.x, p.y))
-    applyChange((arr) => [
-      ...arr,
-      { class_id: activeClassId, x: minX, y: minY, w, h, approved: false, attributes: { polygon: flattened } },
-    ])
+    applyChange((arr) => [...arr, { class_id: activeClassId, x: minX, y: minY, w, h, approved: false, attributes: { polygon: flattened } }])
     setPolyPoints([])
     setPolyActive(false)
   }
@@ -527,16 +610,18 @@ export default function Annotate() {
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <div className={UI.h1}>Annotate</div>
-          <div className={UI.sub}>
-            Draw boxes • Ctrl+S save • Arrow keys navigate • Wheel zoom • Space pan
-          </div>
+          <div className={UI.sub}>Draw boxes • Ctrl+S save • Arrow keys navigate • Wheel zoom • Space pan</div>
 
           <div className="mt-3 flex flex-wrap gap-2">
             <Link to={`/project/${projectId}`} className={UI.btnSecondary}>
               Back to project
             </Link>
-            <span className={UI.chip}>Tool: {tool === "draw" ? "Draw" : tool === "polygon" ? "Polygon" : tool === "pan" ? "Pan" : "Select"}</span>
-            {user?.role ? <span className={UI.chip}>Role: {String(user.role).replace(/^\w/, (c) => c.toUpperCase())}</span> : null}
+            <span className={UI.chip}>
+              Tool: {tool === "draw" ? "Draw" : tool === "polygon" ? "Polygon" : tool === "pan" ? "Pan" : "Select"}
+            </span>
+            {user?.role ? (
+              <span className={UI.chip}>Role: {String(user.role).replace(/^\w/, (c) => c.toUpperCase())}</span>
+            ) : null}
           </div>
         </div>
 
@@ -569,7 +654,7 @@ export default function Annotate() {
             Fit
           </button>
 
-          <button className={UI.btnPrimary} onClick={save} disabled={!lock.ok}>
+          <button className={UI.btnPrimary} onClick={() => void save()} disabled={!lock.ok}>
             Save
           </button>
         </div>
@@ -584,12 +669,12 @@ export default function Annotate() {
             <>
               <span className={cx(UI.pillBase, UI.pillInfo)}>{index + 1} / {items.length}</span>
               <span className="ml-2">{item.file_name}</span>
-              <span className="ml-2 text-blue-700 dark:text-blue-200">
-                {item.width}×{item.height}
-              </span>
+              <span className="ml-2 text-blue-700 dark:text-blue-200">{item.width}×{item.height}</span>
               <span className={cx("ml-2", dirty ? "text-orange-700 dark:text-orange-200 font-medium" : "text-emerald-700 dark:text-emerald-200")}>
                 {dirty ? "Unsaved" : "Saved"}
               </span>
+              {imageLoading ? <span className="ml-2 text-slate-400">Loading image…</span> : null}
+              {imageError ? <span className="ml-2 text-rose-400">{imageError}</span> : null}
             </>
           ) : (
             "—"
@@ -669,7 +754,16 @@ export default function Annotate() {
               onDblClick={finishPolygon}
             >
               <Layer>
-                {image && item && <KonvaImage image={image} x={0} y={0} width={item.width} height={item.height} />}
+                {image && item && (
+                  <KonvaImage
+                    image={image}
+                    x={0}
+                    y={0}
+                    width={item.width}
+                    height={item.height}
+                    crossOrigin="anonymous"
+                  />
+                )}
               </Layer>
 
               <Layer>
@@ -716,7 +810,7 @@ export default function Annotate() {
             </Stage>
           </div>
 
-          {/* thumbnails (light-like strip for clarity, but themed) */}
+          {/* thumbnails */}
           <div className="border-t border-blue-200/30 p-2 bg-white/90 dark:bg-slate-950/40">
             <div className="flex items-center gap-2 overflow-x-auto">
               <button className={UI.btnSecondary} onClick={prev}>
@@ -779,12 +873,7 @@ export default function Annotate() {
                   </button>
                 )
               })}
-
-              {!classes.length && (
-                <div className="text-xs text-slate-600 dark:text-slate-300">
-                  No classes defined. Add them in the project dashboard.
-                </div>
-              )}
+              {!classes.length && <div className="text-xs text-slate-600 dark:text-slate-300">No classes defined.</div>}
             </div>
           </div>
 
@@ -797,38 +886,42 @@ export default function Annotate() {
                   Click a row to select. Toggle Approved for export filtering.
                 </div>
               </div>
-              <span className={UI.chip}>{anns.length} total</span>
+              <span className={cx(UI.chip, "shrink-0")}>{anns.length} total</span>
             </div>
 
-            <div className="mt-3 space-y-2 max-h-[420px] overflow-auto pr-1">
+            <div className="mt-3 space-y-2 max-h-[520px] overflow-auto pr-1">
               {anns.map((a, i) => {
                 const cls = classById[a.class_id]
                 const selected = i === selectedIdx
                 return (
-                  <div
+                  <button
                     key={i}
-                    className={cx(
-                      "border rounded-2xl p-3 cursor-pointer flex flex-col gap-1 transition-colors",
-                      selected
-                        ? "border-blue-300 bg-blue-50/60 dark:border-blue-800/60 dark:bg-blue-950/30"
-                        : "border-blue-200/70 bg-white/80 hover:bg-blue-50/30 dark:border-blue-900/60 dark:bg-slate-950/30 dark:hover:bg-blue-950/20"
-                    )}
                     onClick={() => setSelectedIdx(i)}
+                    className={cx(
+                      "w-full text-left rounded-2xl border p-3 transition-colors",
+                      selected
+                        ? "border-sky-400 bg-sky-50/80 dark:border-sky-700/60 dark:bg-sky-950/30"
+                        : "border-blue-100/70 bg-white/70 hover:bg-blue-50/40 dark:border-blue-900/50 dark:bg-slate-950/30 dark:hover:bg-blue-950/30"
+                    )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2 h-6 rounded-full" style={{ backgroundColor: cls?.color || "#22c55e" }} />
-                        <div className="font-medium text-slate-900 dark:text-slate-100 truncate">{cls?.name || a.class_id}</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cls?.color || "#22c55e" }} />
+                        <div className="font-medium text-slate-900 dark:text-slate-100">{cls?.name || `Class ${a.class_id}`}</div>
                       </div>
 
                       <button
-                        className={cx(UI.pillBase, a.approved ? UI.pillOk : UI.pillInfo)}
+                        className={cx(
+                          UI.pillBase,
+                          a.approved ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-200 dark:border-emerald-900/50"
+                                     : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/40 dark:text-slate-200 dark:border-slate-700/60"
+                        )}
                         onClick={(e) => {
                           e.stopPropagation()
                           toggleApproved(i)
                         }}
                       >
-                        {a.approved ? "Approved" : "Unapproved"}
+                        {a.approved ? "Approved" : "Not approved"}
                       </button>
                     </div>
 
@@ -849,15 +942,13 @@ export default function Annotate() {
                           onChange={(e) => {
                             const value = e.target.value
                             applyChange((arr) =>
-                              arr.map((ann, idx) =>
-                                idx === i ? { ...ann, attributes: { ...(ann.attributes || {}), note: value } } : ann
-                              )
+                              arr.map((ann, idx) => (idx === i ? { ...ann, attributes: { ...(ann.attributes || {}), note: value } } : ann))
                             )
                           }}
                         />
                       </div>
                     )}
-                  </div>
+                  </button>
                 )
               })}
 

@@ -3,7 +3,7 @@ import axios, { AxiosError, InternalAxiosRequestConfig } from "axios"
 export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000"
 
 // ------------------------------------------------------------------
-// Token storage (supports multiple legacy keys + always persists)
+// Token storage
 // ------------------------------------------------------------------
 const ACCESS_KEYS = ["access_token", "token", "jwt", "aa_access_token"]
 const REFRESH_KEYS = ["refresh_token", "aa_refresh_token"]
@@ -15,7 +15,7 @@ function readFirst(keys: string[]): string | null {
       if (v && v.trim()) return v.trim()
     }
   } catch {
-    // ignore (SSR / privacy mode)
+    // ignore
   }
   return null
 }
@@ -35,8 +35,6 @@ let refreshToken: string | null = readFirst(REFRESH_KEYS)
 export function setTokens(a: string | null, r: string | null) {
   accessToken = a
   refreshToken = r
-
-  // persist using canonical keys (also keeps your current login working after refresh)
   writeToken("access_token", accessToken)
   writeToken("refresh_token", refreshToken)
 }
@@ -54,7 +52,6 @@ export const api = axios.create({
 
 // Attach Authorization header on every request
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  // re-read from localStorage if memory token is missing (page reload etc.)
   if (!accessToken) accessToken = readFirst(ACCESS_KEYS)
   if (!refreshToken) refreshToken = readFirst(REFRESH_KEYS)
 
@@ -65,40 +62,41 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config
 })
 
-// One-shot refresh on 401
 api.interceptors.response.use(
   (res) => res,
-  async (err: AxiosError) => {
+  async (err) => {
     const original: any = err.config
     const status = err.response?.status
 
-    if (status === 401 && !original?.__retried) {
-      // refresh token might exist only in storage
-      if (!refreshToken) refreshToken = readFirst(REFRESH_KEYS)
+    if (status === 401 && original && !original.__retried) {
+      original.__retried = true
 
-      if (refreshToken) {
-        original.__retried = true
-        try {
-          const rr = await axios.post(
-            `${API_BASE}/api/auth/refresh`,
-            { refresh_token: refreshToken },
-            { headers: { "Content-Type": "application/json" } }
-          )
+      try {
+        const refresh = localStorage.getItem("refresh_token") || localStorage.getItem("aa_refresh_token")
+        if (!refresh) throw new Error("no refresh token")
 
-          const newAccess = (rr.data as any)?.access_token as string | undefined
-          if (newAccess && newAccess.trim()) {
-            setTokens(newAccess.trim(), refreshToken)
-            original.headers = original.headers ?? {}
-            original.headers.Authorization = `Bearer ${newAccess.trim()}`
-            return axios(original)
-          }
-        } catch {
-          // refresh failed → clear tokens
-          setTokens(null, null)
-        }
-      } else {
-        // no refresh token → clear tokens
-        setTokens(null, null)
+        const rr = await axios.post(
+          `${API_BASE}/api/auth/refresh`,
+          { refresh_token: refresh },
+          { headers: { "Content-Type": "application/json" } }
+        )
+
+        const newAccess = rr.data?.access_token
+        if (!newAccess) throw new Error("no access token")
+
+        localStorage.setItem("access_token", newAccess)
+
+        // ensure retry hits backend, not frontend origin
+        original.baseURL = API_BASE
+        original.headers = original.headers ?? {}
+        original.headers.Authorization = `Bearer ${newAccess}`
+
+        // IMPORTANT: retry using same api instance
+        return api.request(original)
+      } catch (e) {
+        localStorage.removeItem("access_token")
+        localStorage.removeItem("refresh_token")
+        throw err
       }
     }
 
@@ -106,22 +104,29 @@ api.interceptors.response.use(
   }
 )
 
+
 // ------------------------------------------------------------------
 // helpers
 // ------------------------------------------------------------------
 export function mediaUrl(itemId: number) {
+  // kept for compatibility, but protected endpoints won't work via <img/> directly
   return `${API_BASE}/media/items/${itemId}`
 }
 
 export function mediaUrlCandidates(itemId: number) {
-  const a = `${API_BASE}/media/items/${itemId}`
-  const b = `${API_BASE}/api/media/items/${itemId}`
-  return Array.from(new Set([a, b]))
+  // include ALL common backend route variants
+  const xs = [
+    `${API_BASE}/media/items/${itemId}`,
+    `${API_BASE}/api/media/items/${itemId}`,
+    `${API_BASE}/api/items/${itemId}/media`,
+    `${API_BASE}/api/items/${itemId}/image`,
+    `${API_BASE}/api/items/${itemId}/file`,
+  ]
+  return Array.from(new Set(xs))
 }
 
 export function wsJobUrl(jobId: number) {
   const base = API_BASE.replace("http://", "ws://").replace("https://", "wss://")
-  // websocket router is mounted at /ws without the /api prefix
   return `${base}/ws/jobs/${jobId}`
 }
 
@@ -130,7 +135,6 @@ export function logoUrl() {
 }
 
 export function logoUrlCandidates() {
-  const a = `${API_BASE}/media/logo`
-  const b = `${API_BASE}/api/media/logo`
-  return Array.from(new Set([a, b]))
+  const xs = [`${API_BASE}/media/logo`, `${API_BASE}/api/media/logo`]
+  return Array.from(new Set(xs))
 }
