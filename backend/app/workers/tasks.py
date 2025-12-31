@@ -26,9 +26,10 @@ from ultralytics import YOLO
 
 from app.workers.celery_app import celery
 from app.db.session import SessionLocal
-from app.models.models import Job, Dataset, DatasetItem, ModelWeight, LabelClass, AnnotationSet, Annotation
+from app.models.models import Job, Dataset, DatasetItem, ModelWeight, LabelClass, AnnotationSet, Annotation, Project
 from app.core.config import settings
 from app.services.inference import load_ultralytics_model, predict_bboxes
+from app.services.model_metadata_check import check_model_metadata
 
 
 # ---------------------------------------------------------------------
@@ -339,6 +340,23 @@ def train_yolo_task(job_id: int):
         if not base_weights_path.exists():
             raise ValueError("base weights file missing on disk")
 
+        # --------------------------
+        # Model metadata check (BASE)
+        # --------------------------
+        proj = db.query(Project).filter(Project.id == job.project_id).first()
+        expected_task = (proj.task_type if proj else None)
+        _update_job(db, job, progress=0.215, message="checking base model metadata")
+        base_check = check_model_metadata(
+            base_weights_path,
+            framework=base_mw.framework,
+            expected_task=expected_task,
+            expected_class_names=class_names,
+            strict_class_order=True,
+        )
+        _merge_job_payload(db, job, {"base_model_check": base_check})
+        if not base_check.get("ok"):
+            raise ValueError(f"Base model incompatible: {base_check.get('summary') or base_check.get('error') or 'unknown'}")
+
         # -------------------------------------------------------------------------
         # END (existing logic)
         # -------------------------------------------------------------------------
@@ -455,6 +473,23 @@ def train_yolo_task(job_id: int):
         model_out = artifacts_dir / "model.pt"
         shutil.copy2(best_pt, model_out)
 
+        # -----------------------------
+        # Model metadata check (TRAINED)
+        # -----------------------------
+        _update_job(db, job, progress=0.805, message="checking trained model metadata")
+        proj = db.query(Project).filter(Project.id == job.project_id).first()
+        expected_task = (proj.task_type if proj else None)
+        trained_check = check_model_metadata(
+            model_out,
+            framework=base_mw.framework,
+            expected_task=expected_task,
+            expected_class_names=class_names,
+            strict_class_order=True,
+        )
+        _merge_job_payload(db, job, {"trained_model_check": trained_check})
+        if not trained_check.get("ok"):
+            raise ValueError(f"Trained model incompatible: {trained_check.get('summary') or trained_check.get('error') or 'unknown'}")
+
         # Bench (val) on test/val split
         _update_job(db, job, progress=0.82, message=f"benchmarking on {bench_split} split")
         metrics_obj = YOLO(str(model_out)).val(
@@ -496,17 +531,19 @@ def train_yolo_task(job_id: int):
 
         # Insert ModelWeight into DB
         rel_model_path = str(model_out.relative_to(Path(settings.storage_dir))).replace("\\", "/")
+        trained_class_names = {str(i): str(n) for i, n in enumerate(class_names)}
         mw = ModelWeight(
             project_id=job.project_id,
             name=trained_model_name,
             framework=base_mw.framework,
             rel_path=rel_model_path,
-            class_names=base_mw.class_names,
+            class_names=trained_class_names,
             meta={
                 **(base_mw.meta or {}),
                 **(meta or {}),
                 "trained_at": datetime.utcnow().isoformat(),
                 "benchmark_report_rel_path": rel_report_path,
+                "check": trained_check,
                 "bench": {
                     "precision(B)": prec,
                     "recall(B)": rec,

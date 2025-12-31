@@ -212,12 +212,16 @@ def train_yolo_summary(
         "downloads": [],
         "plots": [],
         "updated_at": (job.updated_at.isoformat() if job.updated_at else None),
+        "base_model_check": None,
+        "model_check": None,
     }
 
     if isinstance(job.payload, dict):
         out["trained_model_id"] = job.payload.get("trained_model_id")
         out["trained_model_name"] = job.payload.get("trained_model_name")
         out["metrics"] = job.payload.get("bench_metrics") or job.payload.get("metrics")
+        out["base_model_check"] = job.payload.get("base_model_check")
+        out["model_check"] = job.payload.get("trained_model_check") or job.payload.get("model_check")
 
     candidates: list[tuple[str, Path]] = []
     if run_dir:

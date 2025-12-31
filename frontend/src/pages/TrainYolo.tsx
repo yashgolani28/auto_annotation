@@ -22,6 +22,11 @@ type TrainSummary = {
   downloads?: Array<{ label: string; job_rel_path: string; url: string }>
   plots?: Array<{ name: string; job_rel_path: string; url: string }>
   updated_at?: string | null
+
+  // ✅ new: metadata checks (base + trained)
+  base_model_check?: any
+  model_check?: any
+  trained_model_check?: any
 }
 
 function cx(...xs: Array<string | false | undefined | null>) {
@@ -83,6 +88,81 @@ function guessImageMime(name: string) {
   if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg"
   if (n.endsWith(".webp")) return "image/webp"
   return "image/png"
+}
+
+function badgeForCheck(ok: any) {
+  if (ok === true) return "badge badge-green"
+  if (ok === false) return "badge badge-red"
+  return "badge"
+}
+
+function sectionBoxTone(ok: any) {
+  if (ok === true) return "bg-emerald-500/10 border-emerald-500/20"
+  if (ok === false) return "bg-rose-500/10 border-rose-500/20"
+  return "bg-[rgba(59,130,246,0.04)] border-[color:var(--border)]"
+}
+
+function renderCheckDetails(check: any) {
+  if (!check || typeof check !== "object") return null
+  const errors: string[] = Array.isArray(check.errors) ? check.errors : []
+  const warnings: string[] = Array.isArray(check.warnings) ? check.warnings : []
+  const diff = check.diff && typeof check.diff === "object" ? check.diff : null
+
+  const hasAny = errors.length || warnings.length || diff
+  if (!hasAny) return null
+
+  return (
+    <details className="mt-3 rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-3">
+      <summary className="cursor-pointer text-xs font-semibold opacity-80">View details</summary>
+
+      {errors.length ? (
+        <div className="mt-3">
+          <div className="text-xs font-semibold text-rose-700 dark:text-rose-300">Errors</div>
+          <ul className="mt-1 list-disc pl-5 text-xs text-slate-800 dark:text-slate-200">
+            {errors.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {warnings.length ? (
+        <div className="mt-3">
+          <div className="text-xs font-semibold text-amber-700 dark:text-amber-300">Warnings</div>
+          <ul className="mt-1 list-disc pl-5 text-xs text-slate-800 dark:text-slate-200">
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {diff ? (
+        <div className="mt-3">
+          <div className="text-xs font-semibold text-slate-900 dark:text-slate-100">Class diff</div>
+          <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2">
+            {[
+              ["Expected", diff.expected_nc],
+              ["Actual", diff.actual_nc],
+              ["Missing", (diff.missing_expected || []).length],
+              ["Extra", (diff.extra_actual || []).length],
+            ].map(([k, v]) => (
+              <div key={String(k)} className="rounded-xl border border-[color:var(--border)] bg-[rgba(59,130,246,0.03)] px-3 py-2">
+                <div className="text-[11px] font-semibold opacity-80">{k}</div>
+                <div className="text-base font-semibold mt-0.5">{String(v ?? "—")}</div>
+              </div>
+            ))}
+          </div>
+
+          {Array.isArray(diff.order_mismatches) && diff.order_mismatches.length ? (
+            <div className="mt-3 text-xs opacity-80">
+              Order mismatches: <span className="font-semibold">{diff.order_mismatches.length}</span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </details>
+  )
 }
 
 export default function TrainYolo() {
@@ -427,6 +507,16 @@ export default function TrainYolo() {
     return showAllPlots ? ps : ps.slice(0, 12)
   }, [plotsSorted, showAllPlots])
 
+  const trainedCheck = useMemo(() => {
+    const s: any = summary || {}
+    return s.model_check || s.trained_model_check || null
+  }, [summary])
+
+  const baseCheck = useMemo(() => {
+    const s: any = summary || {}
+    return s.base_model_check || null
+  }, [summary])
+
   return (
     <div>
       <PageHeader
@@ -438,7 +528,11 @@ export default function TrainYolo() {
             <Link to={`/project/${projectId}`} className="btn btn-ghost text-sm">
               Back to Project
             </Link>
-            <button className="btn btn-primary text-sm" onClick={start} disabled={loading || !datasetId || !annotationSetId || !baseModelId || isActive}>
+            <button
+              className="btn btn-primary text-sm"
+              onClick={start}
+              disabled={loading || !datasetId || !annotationSetId || !baseModelId || isActive}
+            >
               {isActive ? "Running…" : "Start training"}
             </button>
           </div>
@@ -447,7 +541,10 @@ export default function TrainYolo() {
 
       {/* Modal preview for plots */}
       {activePlot && (
-        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center" onClick={() => setActivePlot(null)}>
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm p-4 flex items-center justify-center"
+          onClick={() => setActivePlot(null)}
+        >
           <div
             className="w-full max-w-6xl rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] shadow-2xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
@@ -500,7 +597,12 @@ export default function TrainYolo() {
 
             <div className="md:col-span-2">
               <FieldLabel>Trained model name</FieldLabel>
-              <input className={UI.field} value={trainedModelName} onChange={(e) => setTrainedModelName(e.target.value)} placeholder="e.g. essi_vehicle_v1" />
+              <input
+                className={UI.field}
+                value={trainedModelName}
+                onChange={(e) => setTrainedModelName(e.target.value)}
+                placeholder="e.g. essi_vehicle_v1"
+              />
               <div className={UI.helper}>
                 This name will appear in <span className="font-semibold">Models</span> after training.
               </div>
@@ -738,17 +840,48 @@ export default function TrainYolo() {
           </div>
 
           {/* Summary + Plots */}
-          {summary && (summary.plots?.length || summary.metrics) ? (
+          {summary && (summary.plots?.length || summary.metrics || trainedCheck || baseCheck) ? (
             <div className="app-card p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className={UI.sectionTitle}>Results</div>
-                  <div className={UI.sectionHint}>Final metrics and plots generated by training & benchmarking.</div>
+                  <div className={UI.sectionHint}>Final metrics, compatibility checks, and plots generated by training & benchmarking.</div>
                 </div>
                 <Link to={`/project/${projectId}/models`} className="btn btn-ghost text-sm">
                   Open Models
                 </Link>
               </div>
+
+              {/* ✅ Model checks (shown after training finishes) */}
+              {(baseCheck || trainedCheck) && (
+                <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {baseCheck ? (
+                    <div className={cx("rounded-2xl border p-4", sectionBoxTone(baseCheck.ok))}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">Base model check</div>
+                          <div className="text-xs opacity-80 mt-1">{baseCheck.summary || baseCheck.error || "—"}</div>
+                        </div>
+                        <span className={badgeForCheck(baseCheck.ok)}>{baseCheck.ok === true ? "pass" : baseCheck.ok === false ? "fail" : "—"}</span>
+                      </div>
+                      {renderCheckDetails(baseCheck)}
+                    </div>
+                  ) : null}
+
+                  {trainedCheck ? (
+                    <div className={cx("rounded-2xl border p-4", sectionBoxTone(trainedCheck.ok))}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold">Trained model check</div>
+                          <div className="text-xs opacity-80 mt-1">{trainedCheck.summary || trainedCheck.error || "—"}</div>
+                        </div>
+                        <span className={badgeForCheck(trainedCheck.ok)}>{trainedCheck.ok === true ? "pass" : trainedCheck.ok === false ? "fail" : "—"}</span>
+                      </div>
+                      {renderCheckDetails(trainedCheck)}
+                    </div>
+                  ) : null}
+                </div>
+              )}
 
               {summary.metrics && (
                 <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-2">
@@ -766,8 +899,6 @@ export default function TrainYolo() {
                 </div>
               )}
 
-              {/* Downloads are intentionally removed */}
-
               {plotsSorted?.length ? (
                 <div className="mt-5">
                   <div className="flex items-center justify-between gap-3 mb-2">
@@ -779,7 +910,6 @@ export default function TrainYolo() {
                     )}
                   </div>
 
-                  {/* ✅ Better grid: 2 cols on md, 3 cols on xl for symmetry */}
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                     {plotsToShow.map((p) => {
                       const src = plotSrcByUrl[p.url] || ""

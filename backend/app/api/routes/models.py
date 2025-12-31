@@ -1,15 +1,16 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
-
+from datetime import datetime
 from app.db.session import get_db
-from app.models.models import Project, ModelWeight, User
+from app.models.models import Project, ModelWeight, User, LabelClass
 from app.schemas.schemas import ModelOut
 from app.services.storage import ensure_dirs, models_dir
 from app.services.inference import load_ultralytics_model, get_model_class_names
+from app.services.model_metadata_check import check_model_metadata
 from app.core.config import settings
 from app.core.deps import get_current_user, require_project_access, require_project_role
 
@@ -42,6 +43,32 @@ def upload_model(project_id: int, name: str = Form(...), file: UploadFile = File
         except Exception as e:
             meta = {"warning": f"could not read class names: {e}"}
 
+    # lightweight compatibility snapshot (non-blocking)
+    expected_classes = [
+        c.name
+        for c in db.query(LabelClass)
+        .filter(LabelClass.project_id == project_id)
+        .order_by(LabelClass.order_index.asc())
+        .all()
+    ]
+    try:
+        p = db.query(Project).filter(Project.id == project_id).first()
+        expected_task = p.task_type if p else None
+        meta["check"] = check_model_metadata(
+            dest,
+            framework=framework,
+            expected_task=expected_task,
+            expected_class_names=(expected_classes if expected_classes else None),
+            strict_class_order=True,
+        )
+    except Exception as e:
+        meta["check"] = {
+            "ok": True,
+            "framework": framework,
+            "checked_at": datetime.utcnow().isoformat(),
+            "warnings": [f"check skipped: {type(e).__name__}: {e}"],
+        }
+
     mw = ModelWeight(
         project_id=project_id,
         name=name,
@@ -60,6 +87,52 @@ def list_models(project_id: int, db: Session = Depends(get_db), user: User = Dep
     require_project_access(project_id, db, user)
     return db.query(ModelWeight).filter(ModelWeight.project_id == project_id).order_by(ModelWeight.uploaded_at.desc()).all()
 
+@router.get("/projects/{project_id}/models/{model_id}/check")
+def check_model(
+    project_id: int,
+    model_id: int,
+    refresh: bool = Query(False),
+    persist: bool = Query(False),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    require_project_access(project_id, db, user)
+    mw = db.query(ModelWeight).filter(ModelWeight.id == model_id, ModelWeight.project_id == project_id).first()
+    if not mw:
+        raise HTTPException(status_code=404, detail="model not found")
+
+    meta = mw.meta if isinstance(mw.meta, dict) else {}
+    if (not refresh) and isinstance(meta.get("check"), dict):
+        return {"cached": True, **meta["check"]}
+
+    p = db.query(Project).filter(Project.id == project_id).first()
+    expected_task = p.task_type if p else None
+    expected_classes = [
+        c.name
+        for c in db.query(LabelClass)
+        .filter(LabelClass.project_id == project_id)
+        .order_by(LabelClass.order_index.asc())
+        .all()
+    ]
+
+    weights_path = Path(settings.storage_dir) / mw.rel_path
+    check = check_model_metadata(
+        weights_path,
+        framework=mw.framework,
+        expected_task=expected_task,
+        expected_class_names=(expected_classes if expected_classes else None),
+        strict_class_order=True,
+    )
+
+    if persist:
+        require_project_role(project_id, ["reviewer"], db, user)
+        meta = mw.meta if isinstance(mw.meta, dict) else {}
+        meta["check"] = check
+        mw.meta = meta
+        db.add(mw)
+        db.commit()
+
+    return {"cached": False, **check}
 
 @router.delete("/models/{model_id}")
 def delete_model(model_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
